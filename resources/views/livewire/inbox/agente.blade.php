@@ -41,13 +41,21 @@ new class extends Component
 
 
 <div>
-    <x-header title="Bandeja de Agente" subtitle="Casos Asignados" separator>
-        <x-slot class="!justify-end">
-            <x-input icon="o-bolt" placeholder="Search..." />
-        </x-slot>
-        <x-slot>
-            <x-button icon="o-funnel" />
-            <x-button icon="o-plus" class="btn-primary" />
-        </x-slot>
-    </x-header>
+<x-header title="Inbox Agente" subtitle="Casos Asignados" separator>
+    <x-slot:middle class="!justify-end">
+        <x-input icon="o-bolt" placeholder="Buscar Casos..." />
+    </x-slot:middle>
+    <x-slot:actions>
+        <x-button icon="o-funnel" />
+        <x-button icon="o-plus" class="btn-primary" />
+    </x-slot:actions>
+</x-header>
+
+<x-card separator>
+     <x-icon name="o-inbox" class="cursor-pointer" />
+           Asignnado sin Leer
+     <x-slot:actions separator>
+        <x-button label="Ok" class="btn-primary text-primary" />
+    </x-slot:actions>
+</x-card>
 </div>
