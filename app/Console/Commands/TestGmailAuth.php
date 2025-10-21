@@ -25,14 +25,25 @@ class TestGmailAuth extends Command
             
             if ($result['authenticated']) {
                 $this->info('✅ Autenticación exitosa!');
-                $this->table(['Campo', 'Valor'], [
+                $tableData = [
                     ['Email', $result['email']],
                     ['Total Mensajes', number_format($result['messages_total'])],
                     ['Total Hilos', number_format($result['threads_total'])]
-                ]);
+                ];
+                
+                if (isset($result['auth_method'])) {
+                    $tableData[] = ['Método', $result['auth_method']];
+                }
+                
+                $this->table(['Campo', 'Valor'], $tableData);
             } else {
                 $this->error('❌ Error de autenticación: ' . $result['error']);
-                $this->suggestSolutions();
+                
+                if (isset($result['suggestion'])) {
+                    $this->info('💡 ' . $result['suggestion']);
+                } else {
+                    $this->suggestOAuthSolutions();
+                }
             }
             
         } catch (\Exception $e) {
@@ -68,22 +79,20 @@ class TestGmailAuth extends Command
         return 0;
     }
     
-    private function suggestSolutions(): void
+    private function suggestOAuthSolutions(): void
     {
         $this->info('');
-        $this->info('💡 Opciones de configuración:');
+        $this->info('💡 Opciones de configuración OAuth2:');
         $this->info('');
-        $this->info('1️⃣ DESARROLLO - Application Default Credentials:');
-        $this->line('   gcloud auth application-default login');
-        $this->line('   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json');
+        $this->info('1️⃣ CONFIGURAR OAuth2 (Recomendado):');
+        $this->line('   php artisan gmail:setup-oauth');
+        $this->line('   Luego visita: ' . config('app.url') . '/auth/gmail');
         $this->info('');
         $this->info('2️⃣ DESARROLLO - Mock Service:');
         $this->line('   php artisan gmail:test-auth --mock');
         $this->info('');
-        $this->info('3️⃣ PRODUCCIÓN - Workload Identity:');
-        $this->line('   Configurar Workload Identity Federation en Google Cloud');
+        $this->info('3️⃣ VERIFICAR configuración OAuth existente:');
+        $this->line('   php artisan gmail:setup-oauth --reset');
         $this->info('');
-        $this->info('4️⃣ UI OAuth (requiere ngrok):');
-        $this->line('   Configurar OAuth con dominio público válido');
     }
 }

@@ -31,7 +31,7 @@ class SystemConfig extends Model
     /**
      * Establecer valor de configuración
      */
-    public static function setValue(string $key, $value, string $description = null): self
+    public static function setValue(string $key, $value, ?string $description = null): self
     {
         return self::updateOrCreate(
             ['key' => $key],
@@ -55,7 +55,7 @@ class SystemConfig extends Model
     /**
      * Establecer valor como JSON
      */
-    public static function setJsonValue(string $key, $value, string $description = null): self
+    public static function setJsonValue(string $key, $value, ?string $description = null): self
     {
         return self::setValue($key, json_encode($value), $description);
     }

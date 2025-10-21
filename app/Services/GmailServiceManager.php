@@ -25,28 +25,30 @@ class GmailServiceManager
     private function setupAuthentication(): void
     {
         $this->client->setApplicationName('Omnic Email System');
-        $this->client->setScopes([
-            Gmail::GMAIL_READONLY,
-            Gmail::GMAIL_MODIFY
-        ]);
+        $this->client->setScopes($this->getScopes());
 
-        // Método 1: Application Default Credentials (Desarrollo)
+        // Método 1: OAuth Flow (Preferido para desarrollo y producción)
+        if ($this->tryOAuthFlow()) {
+            return;
+        }
+
+        // Método 2: Application Default Credentials (Fallback)
         if ($this->tryApplicationDefaultCredentials()) {
             return;
         }
 
-        // Método 2: Workload Identity (Producción)
+        // Método 3: Workload Identity (Producción)
         if ($this->tryWorkloadIdentity()) {
             return;
         }
 
-        // Método 3: Service Account Key (Solo si no hay alternativa)
+        // Método 4: Service Account Key (Solo si no hay alternativa)
         if ($this->tryServiceAccountKey()) {
             return;
         }
 
-        // Método 4: OAuth Flow (UI)
-        $this->setupOAuthFlow();
+        // Si nada funciona, lanzar excepción con instrucciones
+        throw new \Exception('No se pudo configurar autenticación. Ejecuta: php artisan gmail:setup-oauth');
     }
 
     /**
@@ -109,25 +111,53 @@ class GmailServiceManager
     }
 
     /**
-     * Configurar OAuth Flow (para UI)
+     * Intentar usar OAuth Flow
      */
-    private function setupOAuthFlow(): void
+    private function tryOAuthFlow(): bool
     {
-        $this->client->setAuthConfig([
-            'client_id' => config('services.google.client_id'),
-            'client_secret' => config('services.google.client_secret'),
-            'redirect_uris' => [config('services.google.redirect_uri')]
-        ]);
+        $this->client->setClientId(config('services.google.client_id'));
+        $this->client->setClientSecret(config('services.google.client_secret'));
+        $this->client->setRedirectUri(config('services.google.redirect_uri'));
         $this->client->setAccessType('offline');
         $this->client->setPrompt('consent');
 
-        // Cargar token de refresh si existe
+        // Cargar tokens existentes
         $refreshToken = SystemConfig::getValue('gmail_refresh_token');
+        $accessToken = SystemConfig::getValue('gmail_access_token');
+        $tokenExpires = SystemConfig::getValue('gmail_token_expires');
+
         if ($refreshToken) {
-            $this->client->refreshToken($refreshToken);
+            // Si tenemos refresh token, úsalo
+            try {
+                $this->client->refreshToken($refreshToken);
+                Log::info('✅ Token OAuth actualizado con refresh token');
+                
+                // Guardar nuevo access token
+                $newTokens = $this->client->getAccessToken();
+                if ($newTokens && isset($newTokens['access_token'])) {
+                    SystemConfig::setValue('gmail_access_token', $newTokens['access_token']);
+                    if (isset($newTokens['expires_in'])) {
+                        SystemConfig::setValue('gmail_token_expires', now()->addSeconds($newTokens['expires_in'])->timestamp);
+                    }
+                }
+                return true;
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Error al actualizar token con refresh token: ' . $e->getMessage());
+            }
+        }
+
+        if ($accessToken && $tokenExpires && now()->timestamp < $tokenExpires) {
+            // Si tenemos access token válido, úsalo
+            $this->client->setAccessToken([
+                'access_token' => $accessToken,
+                'expires_in' => $tokenExpires - now()->timestamp
+            ]);
+            Log::info('✅ Usando access token existente');
+            return true;
         }
         
-        Log::info('⚠️ Usando OAuth Flow - requiere autenticación manual');
+        Log::debug('⚠️ OAuth no configurado o tokens expirados');
+        return false;
     }
 
     /**
@@ -157,19 +187,59 @@ class GmailServiceManager
     public function testAuthentication(): array
     {
         try {
+            // Verificar si hay tokens OAuth disponibles
+            $refreshToken = SystemConfig::getValue('gmail_refresh_token');
+            $accessToken = SystemConfig::getValue('gmail_access_token');
+            
+            if (!$refreshToken && !$accessToken) {
+                return [
+                    'authenticated' => false,
+                    'error' => 'No hay tokens OAuth configurados. Ejecuta: php artisan gmail:setup-oauth'
+                ];
+            }
+            
             $profile = $this->gmailService->users->getProfile('me');
             
             return [
                 'authenticated' => true,
                 'email' => $profile->getEmailAddress(),
                 'messages_total' => $profile->getMessagesTotal(),
-                'threads_total' => $profile->getThreadsTotal()
+                'threads_total' => $profile->getThreadsTotal(),
+                'auth_method' => 'OAuth2'
             ];
         } catch (\Exception $e) {
             return [
                 'authenticated' => false,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'suggestion' => 'Ejecuta: php artisan gmail:setup-oauth'
             ];
         }
+    }
+
+    /**
+     * Obtener cliente Google autenticado
+     */
+    public function getAuthenticatedClient(): ?Client
+    {
+        if ($this->isAuthenticated()) {
+            return $this->client;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Obtener scopes configurados
+     */
+    private function getScopes(): array
+    {
+        return [
+            'https://www.googleapis.com/auth/gmail.readonly',
+            'https://www.googleapis.com/auth/gmail.modify',
+            'https://www.googleapis.com/auth/admin.directory.group',
+            'https://www.googleapis.com/auth/admin.directory.group.member',
+            'https://www.googleapis.com/auth/admin.directory.user.readonly',
+            'https://www.googleapis.com/auth/drive.file', // Para Drive API si lo necesitas
+        ];
     }
 }
