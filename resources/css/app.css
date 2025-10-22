@@ -33,10 +33,33 @@
 * Because Laravel defaults does not match well the design of daisyUI.
 */
 
-.mary-table-pagination span[aria-current="page"] > span {
+.mary-table-pagination span[aria-current="page"]>span {
     @apply bg-primary text-base-100
 }
 
 .mary-table-pagination button {
     @apply cursor-pointer
+}
+
+/* Custom modal width for reply modals */
+.reply-modal-width {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Force modal content width and centering */
+.reply-modal-width .modal-box {
+    width: 74vw !important;
+    max-width: none !important;
+    margin: auto !important;
+    transform: none !important;
+    position: relative !important;
+}
+
+/* Ensure modal container doesn't restrict width */
+.reply-modal-width .modal-container {
+    width: 74vw !important;
+    max-width: none !important;
+    margin: 0 auto !important;
 }
