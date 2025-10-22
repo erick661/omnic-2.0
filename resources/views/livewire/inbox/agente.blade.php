@@ -189,35 +189,19 @@ new class extends Component
                                     @endif
                                 </div>
 
-                                <div class="flex items-center gap-1">
+                                <div class="flex items-center gap-2">
                                     <div wire:loading wire:target="selectCase({{ $caso['id'] }})">
                                         <x-loading class="loading-xs" />
                                     </div>
                                     
-                                    {{-- Dropdown para canales de respuesta --}}
-                                    <div class="dropdown dropdown-end">
-                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost">
-                                            <x-icon name="o-chat-bubble-left-ellipsis" class="w-3 h-3" />
-                                        </div>
-                                        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
-                                                <x-icon name="o-envelope" class="w-4 h-4" />
-                                                Responder por Email
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
-                                                <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
-                                                Responder por WhatsApp
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
-                                                <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
-                                                Responder por SMS
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
-                                                <x-icon name="o-computer-desktop" class="w-4 h-4" />
-                                                Responder por Chat
-                                            </a></li>
-                                        </ul>
-                                    </div>
+                                    {{-- Botón de Ver Caso --}}
+                                    <x-button 
+                                        wire:click="selectCase({{ $caso['id'] }})"
+                                        label="Ver Caso"
+                                        icon="o-eye"
+                                        class="btn-sm btn-primary"
+                                        spinner="selectCase({{ $caso['id'] }})"
+                                    />
                                 </div>
                             </div>
                         </x-card>
@@ -286,35 +270,19 @@ new class extends Component
                                     />
                                 </div>
 
-                                <div class="flex items-center gap-1">
+                                <div class="flex items-center gap-2">
                                     <div wire:loading wire:target="selectCase({{ $caso['id'] }})">
                                         <x-loading class="loading-xs" />
                                     </div>
                                     
-                                    {{-- Dropdown para canales de respuesta --}}
-                                    <div class="dropdown dropdown-end">
-                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost">
-                                            <x-icon name="o-chat-bubble-left-ellipsis" class="w-3 h-3" />
-                                        </div>
-                                        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
-                                                <x-icon name="o-envelope" class="w-4 h-4" />
-                                                Responder por Email
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
-                                                <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
-                                                Responder por WhatsApp
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
-                                                <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
-                                                Responder por SMS
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
-                                                <x-icon name="o-computer-desktop" class="w-4 h-4" />
-                                                Responder por Chat
-                                            </a></li>
-                                        </ul>
-                                    </div>
+                                    {{-- Botón de Ver Caso --}}
+                                    <x-button 
+                                        wire:click="selectCase({{ $caso['id'] }})"
+                                        label="Ver Caso"
+                                        icon="o-eye"
+                                        class="btn-sm btn-primary"
+                                        spinner="selectCase({{ $caso['id'] }})"
+                                    />
                                 </div>
                             </div>
                         </x-card>
@@ -386,35 +354,19 @@ new class extends Component
                                     />
                                 </div>
 
-                                <div class="flex items-center gap-1">
+                                <div class="flex items-center gap-2">
                                     <div wire:loading wire:target="selectCase({{ $caso['id'] }})">
                                         <x-loading class="loading-xs" />
                                     </div>
                                     
-                                    {{-- Dropdown para ver detalles --}}
-                                    <div class="dropdown dropdown-end">
-                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost">
-                                            <x-icon name="o-eye" class="w-3 h-3" />
-                                        </div>
-                                        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
-                                                <x-icon name="o-envelope" class="w-4 h-4" />
-                                                Ver por Email
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
-                                                <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
-                                                Ver por WhatsApp
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
-                                                <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
-                                                Ver por SMS
-                                            </a></li>
-                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
-                                                <x-icon name="o-computer-desktop" class="w-4 h-4" />
-                                                Ver por Chat
-                                            </a></li>
-                                        </ul>
-                                    </div>
+                                    {{-- Botón de Ver Caso --}}
+                                    <x-button 
+                                        wire:click="selectCase({{ $caso['id'] }})"
+                                        label="Ver Caso"
+                                        icon="o-eye"
+                                        class="btn-sm btn-success btn-outline"
+                                        spinner="selectCase({{ $caso['id'] }})"
+                                    />
                                 </div>
                             </div>
                         </x-card>
