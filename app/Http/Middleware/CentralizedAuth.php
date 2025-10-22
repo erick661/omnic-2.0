@@ -155,14 +155,13 @@ class CentralizedAuth
             return null;
         }
 
-        // Buscar usuario por ID del JWT (campo principal de identificación)
-        $user = User::where('id', $userId)->first();
+        // Buscar usuario por email (campo más confiable)
+        $user = User::where('email', $email)->first();
         
-        // Si no existe, crear usuario automáticamente con el ID del JWT
+        // Si no existe, crear usuario automáticamente
         if (!$user) {
             try {
                 $user = User::create([
-                    'id' => $userId, // Usar el ID del JWT
                     'name' => $name ?? $email,
                     'nickname' => $nickname,
                     'email' => $email,
@@ -176,13 +175,15 @@ class CentralizedAuth
                     'user_id' => $user->id,
                     'email' => $user->email,
                     'name' => $user->name,
-                    'nickname' => $user->nickname
+                    'nickname' => $user->nickname,
+                    'jwt_id' => $userId
                 ]);
                 
             } catch (\Exception $e) {
                 Log::error('CentralizedAuth: Error creating user', [
                     'error' => $e->getMessage(),
-                    'email' => $email
+                    'email' => $email,
+                    'jwt_id' => $userId
                 ]);
                 return null;
             }
@@ -193,6 +194,12 @@ class CentralizedAuth
                 'name' => $name ?? $user->name,
                 'nickname' => $nickname ?? $user->nickname,
                 'role' => $this->mapRole($rolId), // Actualizar rol también
+            ]);
+
+            Log::debug('CentralizedAuth: Updated existing user from JWT', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'jwt_id' => $userId
             ]);
         }
 
