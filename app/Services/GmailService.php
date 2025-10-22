@@ -10,6 +10,14 @@ use Illuminate\Support\Facades\Log;
 use App\Models\SystemConfig;
 use App\Models\ImportedEmail;
 use App\Models\GmailGroup;
+use App\Models\OAuthToken;
+
+// Función auxiliar para base64url encoding
+if (!function_exists('base64url_encode')) {
+    function base64url_encode($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+}
 
 class GmailService
 {
@@ -31,7 +39,8 @@ class GmailService
         $this->client->setApplicationName('Omnic Email System');
         $this->client->setScopes([
             Gmail::GMAIL_READONLY,
-            Gmail::GMAIL_MODIFY
+            Gmail::GMAIL_MODIFY,
+            Gmail::GMAIL_SEND
         ]);
         $this->client->setAuthConfig([
             'client_id' => config('services.google.client_id'),
@@ -41,10 +50,66 @@ class GmailService
         $this->client->setAccessType('offline');
         $this->client->setPrompt('consent');
 
-        // Cargar token de refresh si existe
-        $refreshToken = SystemConfig::getValue('gmail_refresh_token');
-        if ($refreshToken) {
-            $this->client->refreshToken($refreshToken);
+        // Cargar token desde base de datos
+        $this->loadTokenFromDatabase();
+    }
+    
+    /**
+     * Cargar token OAuth desde base de datos
+     */
+    private function loadTokenFromDatabase(): void
+    {
+        $oauthToken = OAuthToken::getActiveToken('gmail');
+        
+        if ($oauthToken) {
+            $tokenArray = $oauthToken->getTokenArray();
+            $this->client->setAccessToken($tokenArray);
+            
+            Log::info('Token OAuth cargado desde base de datos');
+            
+            // Verificar si necesita renovación
+            if ($this->client->isAccessTokenExpired()) {
+                $this->refreshTokenIfNeeded($oauthToken);
+            }
+        } else {
+            Log::warning('No se encontró token OAuth activo en base de datos');
+        }
+    }
+    
+    /**
+     * Renovar token si está expirado
+     */
+    private function refreshTokenIfNeeded(OAuthToken $oauthToken): bool
+    {
+        try {
+            $refreshToken = $oauthToken->getDecryptedRefreshToken();
+            
+            if ($refreshToken) {
+                Log::info('Renovando token OAuth expirado...');
+                
+                $newToken = $this->client->fetchAccessTokenWithRefreshToken($refreshToken);
+                
+                if (!empty($newToken) && !isset($newToken['error'])) {
+                    // Actualizar token en base de datos
+                    $oauthToken->updateWithRefreshedToken($newToken);
+                    
+                    Log::info('Token OAuth renovado exitosamente');
+                    return true;
+                } else {
+                    Log::error('Error renovando token OAuth', $newToken);
+                    return false;
+                }
+            } else {
+                Log::error('No hay refresh token disponible para renovación');
+                return false;
+            }
+            
+        } catch (\Exception $e) {
+            Log::error('Excepción renovando token OAuth', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
         }
     }
 
@@ -64,15 +129,26 @@ class GmailService
         try {
             $token = $this->client->fetchAccessTokenWithAuthCode($authCode);
             
-            if (isset($token['refresh_token'])) {
-                SystemConfig::setValue('gmail_refresh_token', $token['refresh_token']);
-                SystemConfig::setValue('gmail_access_token', json_encode($token));
-                return true;
+            if (isset($token['error'])) {
+                Log::error('Error en OAuth callback', $token);
+                return false;
             }
             
-            return false;
+            // Guardar token en base de datos
+            OAuthToken::storeToken('gmail', $token, null, [
+                'created_via' => 'auth_callback',
+                'user_agent' => request()->header('User-Agent'),
+                'ip_address' => request()->ip()
+            ]);
+            
+            Log::info('Token OAuth guardado exitosamente en base de datos');
+            return true;
+            
         } catch (\Exception $e) {
-            Log::error('Error en callback de Gmail: ' . $e->getMessage());
+            Log::error('Error en callback de Gmail', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return false;
         }
     }
@@ -82,8 +158,37 @@ class GmailService
      */
     public function isAuthenticated(): bool
     {
-        $refreshToken = SystemConfig::getValue('gmail_refresh_token');
-        return !empty($refreshToken);
+        try {
+            $oauthToken = OAuthToken::getActiveToken('gmail');
+            
+            if (!$oauthToken) {
+                Log::info('No se encontró token OAuth activo');
+                return false;
+            }
+            
+            // Cargar token en el cliente si no está cargado
+            if (!$this->client->getAccessToken()) {
+                $this->loadTokenFromDatabase();
+            }
+            
+            // Si está expirado, intentar renovar
+            if ($this->client->isAccessTokenExpired()) {
+                Log::info('Token expirado, intentando renovar...');
+                
+                if (!$this->refreshTokenIfNeeded($oauthToken)) {
+                    Log::error('No se pudo renovar el token');
+                    return false;
+                }
+            }
+
+            // Verificar haciendo una petición simple
+            $profile = $this->gmailService->users->getProfile('me');
+            return !empty($profile->getEmailAddress());
+            
+        } catch (\Exception $e) {
+            Log::error('Error verificando autenticación: ' . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -401,6 +506,198 @@ class GmailService
         } catch (\Exception $e) {
             Log::error("Error marcando correo como leído: " . $e->getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Enviar correo a través de Gmail API
+     */
+    public function sendEmail(array $emailData): array
+    {
+        try {
+            if (!$this->isAuthenticated()) {
+                throw new \Exception('Gmail no está autenticado');
+            }
+
+            // Construir el mensaje RFC 2822
+            $rawMessage = $this->buildRawMessage($emailData);
+            
+            // Crear objeto Message de Gmail
+            $message = new Message();
+            $message->setRaw(base64url_encode($rawMessage));
+
+            // Si es respuesta, establecer threadId
+            if (!empty($emailData['thread_id'])) {
+                $message->setThreadId($emailData['thread_id']);
+            }
+
+            // Enviar el mensaje
+            $sentMessage = $this->gmailService->users_messages->send('me', $message);
+
+            Log::info('Email enviado exitosamente', [
+                'message_id' => $sentMessage->getId(),
+                'thread_id' => $sentMessage->getThreadId(),
+                'to' => $emailData['to'],
+                'subject' => $emailData['subject']
+            ]);
+
+            return [
+                'success' => true,
+                'message_id' => $sentMessage->getId(),
+                'thread_id' => $sentMessage->getThreadId(),
+                'sent_at' => now()->toISOString()
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error enviando email: ' . $e->getMessage(), [
+                'email_data' => $emailData
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Construir mensaje RFC 2822 para Gmail API
+     */
+    private function buildRawMessage(array $emailData): string
+    {
+        $headers = [];
+        
+        // Headers básicos
+        $headers[] = "From: {$emailData['from_name']} <{$emailData['from_email']}>";
+        $headers[] = "To: {$emailData['to']}";
+        
+        if (!empty($emailData['cc'])) {
+            $headers[] = "Cc: {$emailData['cc']}";
+        }
+        
+        if (!empty($emailData['bcc'])) {
+            $headers[] = "Bcc: {$emailData['bcc']}";
+        }
+        
+        $headers[] = "Subject: {$emailData['subject']}";
+        $headers[] = "Date: " . now()->format('D, d M Y H:i:s O');
+        $headers[] = "Message-ID: <" . uniqid() . "@" . config('app.url') . ">";
+        
+        // Headers para respuesta
+        if (!empty($emailData['in_reply_to'])) {
+            $headers[] = "In-Reply-To: {$emailData['in_reply_to']}";
+        }
+        
+        if (!empty($emailData['references'])) {
+            $headers[] = "References: {$emailData['references']}";
+        }
+
+        // Content headers
+        $boundary = "boundary_" . uniqid();
+        $headers[] = "MIME-Version: 1.0";
+        $headers[] = "Content-Type: multipart/alternative; boundary=\"{$boundary}\"";
+
+        // Construir cuerpo del mensaje
+        $body = implode("\r\n", $headers) . "\r\n\r\n";
+        
+        // Parte texto plano
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Type: text/plain; charset=UTF-8\r\n";
+        $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+        $body .= $this->convertHtmlToText($emailData['body']) . "\r\n\r\n";
+        
+        // Parte HTML
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+        $body .= $this->wrapHtmlContent($emailData['body']) . "\r\n\r\n";
+        
+        $body .= "--{$boundary}--\r\n";
+
+        return $body;
+    }
+
+    /**
+     * Convertir HTML a texto plano
+     */
+    private function convertHtmlToText(string $html): string
+    {
+        // Convertir saltos de línea HTML
+        $text = str_replace(['<br>', '<br/>', '<br />'], "\n", $html);
+        
+        // Convertir párrafos
+        $text = str_replace(['<p>', '</p>'], ["\n", "\n"], $text);
+        
+        // Remover todas las etiquetas HTML
+        $text = strip_tags($text);
+        
+        // Limpiar espacios en blanco excesivos
+        $text = preg_replace('/\n\s*\n/', "\n\n", $text);
+        $text = trim($text);
+        
+        return $text;
+    }
+
+    /**
+     * Envolver contenido en HTML básico
+     */
+    private function wrapHtmlContent(string $content): string
+    {
+        // Si ya tiene estructura HTML, devolverlo tal como está
+        if (strpos($content, '<html') !== false) {
+            return $content;
+        }
+
+        // Convertir saltos de línea a <br>
+        $htmlContent = nl2br(htmlspecialchars($content, ENT_QUOTES, 'UTF-8'));
+
+        return "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Email</title>
+</head>
+<body style=\"font-family: Arial, sans-serif; line-height: 1.6; color: #333;\">
+    <div style=\"max-width: 600px; margin: 0 auto; padding: 20px;\">
+        {$htmlContent}
+    </div>
+</body>
+</html>";
+    }
+
+    /**
+     * Obtener información del hilo para respuestas
+     */
+    public function getThreadInfo(string $threadId): ?array
+    {
+        try {
+            $thread = $this->gmailService->users_threads->get('me', $threadId);
+            $messages = $thread->getMessages();
+            
+            if (empty($messages)) {
+                return null;
+            }
+
+            // Obtener el primer mensaje para extraer References
+            $firstMessage = $messages[0];
+            $headers = [];
+            
+            foreach ($firstMessage->getPayload()->getHeaders() as $header) {
+                $headers[strtolower($header->getName())] = $header->getValue();
+            }
+
+            return [
+                'thread_id' => $threadId,
+                'message_id' => $firstMessage->getId(),
+                'in_reply_to' => $headers['message-id'] ?? null,
+                'references' => $headers['references'] ?? ($headers['message-id'] ?? null),
+                'original_subject' => $headers['subject'] ?? '',
+            ];
+
+        } catch (\Exception $e) {
+            Log::error("Error obteniendo info del hilo: " . $e->getMessage());
+            return null;
         }
     }
 }

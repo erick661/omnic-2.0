@@ -106,4 +106,46 @@ class MockGmailService
         Log::info("🧪 MockGmailService: Marcando como leído: {$messageId}");
         return true;
     }
+
+    /**
+     * Simular envío de correo
+     */
+    public function sendEmail(array $emailData): array
+    {
+        Log::info('🧪 MockGmailService: Simulando envío de correo', [
+            'to' => $emailData['to'],
+            'subject' => $emailData['subject'],
+            'from' => $emailData['from_email'] ?? 'mock@test.com'
+        ]);
+
+        // Simular delay de envío
+        sleep(1);
+
+        // Generar IDs mock
+        $messageId = 'mock_sent_' . time() . '_' . rand(1000, 9999);
+        $threadId = $emailData['thread_id'] ?? 'mock_thread_' . time();
+
+        return [
+            'success' => true,
+            'message_id' => $messageId,
+            'thread_id' => $threadId,
+            'sent_at' => now()->toISOString()
+        ];
+    }
+
+    /**
+     * Simular obtención de información del hilo
+     */
+    public function getThreadInfo(string $threadId): ?array
+    {
+        Log::info("🧪 MockGmailService: Obteniendo info del hilo: {$threadId}");
+
+        return [
+            'thread_id' => $threadId,
+            'message_id' => 'mock_original_' . time(),
+            'in_reply_to' => 'mock_reply_to_' . time(),
+            'references' => 'mock_references_' . time(),
+            'original_subject' => 'Mock Original Subject',
+        ];
+    }
 }

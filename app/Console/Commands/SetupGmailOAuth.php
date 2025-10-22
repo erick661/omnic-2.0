@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Google\Client;
 use Google\Service\Gmail;
 use App\Models\SystemConfig;
+use App\Models\OAuthToken;
 
 class SetupGmailOAuth extends Command
 {
@@ -42,9 +43,13 @@ class SetupGmailOAuth extends Command
         ]);
 
         // Verificar si ya hay tokens
-        $refreshToken = SystemConfig::getValue('gmail_refresh_token');
-        if ($refreshToken && !$this->option('reset')) {
-            $this->warn('⚠️ Ya existe un refresh token configurado.');
+        $existingToken = OAuthToken::getActiveToken('gmail');
+        if ($existingToken && !$this->option('reset')) {
+            $this->warn('⚠️ Ya existe un token OAuth configurado.');
+            $this->line('   📅 Creado: ' . $existingToken->created_at->format('Y-m-d H:i:s'));
+            if ($existingToken->expires_at) {
+                $this->line('   ⏰ Expira: ' . $existingToken->expires_at->format('Y-m-d H:i:s'));
+            }
             if (!$this->confirm('¿Deseas probar la autenticación actual?', true)) {
                 return 0;
             }
@@ -59,6 +64,7 @@ class SetupGmailOAuth extends Command
         $client->setScopes([
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.modify',
+            'https://www.googleapis.com/auth/gmail.send',
             'https://www.googleapis.com/auth/admin.directory.group',
             'https://www.googleapis.com/auth/admin.directory.group.member',
             'https://www.googleapis.com/auth/admin.directory.user.readonly',
@@ -87,11 +93,17 @@ class SetupGmailOAuth extends Command
 
     private function resetOAuthTokens(): void
     {
+        // Desactivar tokens existentes en la nueva tabla
+        OAuthToken::where('provider', 'gmail')
+                  ->where('is_active', true)
+                  ->update(['is_active' => false]);
+        
+        // También limpiar el sistema anterior por compatibilidad
         SystemConfig::setValue('gmail_refresh_token', null);
         SystemConfig::setValue('gmail_access_token', null);
         SystemConfig::setValue('gmail_token_expires', null);
         
-        $this->info('🔄 Tokens OAuth reiniciados');
+        $this->info('🔄 Tokens OAuth reiniciados (tabla nueva y sistema anterior)');
     }
 
     private function testExistingAuth(): int

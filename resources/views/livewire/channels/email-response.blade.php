@@ -59,17 +59,44 @@ new class extends Component
             'message' => 'required|min:10',
         ]);
 
-        // Lógica para enviar email
-        logger()->info('Email enviado', [
-            'case_id' => $this->caseId,
-            'to' => $this->to,
-            'subject' => $this->subject
-        ]);
+        try {
+            // Crear email en bandeja de salida usando el servicio
+            $outboxService = app(\App\Services\OutboxEmailService::class);
+            
+            $emailData = [
+                'case_id' => $this->caseId,
+                'from_email' => auth()->user()->email ?? 'comunicaciones@orproverificaciones.cl',
+                'from_name' => auth()->user()->name ?? 'Sistema OMNIC',
+                'to' => $this->to,
+                'cc' => $this->cc,
+                'bcc' => $this->bcc,
+                'subject' => $this->subject,
+                'message' => $this->message,
+                'priority' => $this->priority,
+            ];
 
-        $this->dispatch('email-sent', $this->caseId);
-        $this->dispatch('notify', 'Email enviado correctamente', 'success');
-        
-        return redirect()->route('agente');
+            $outboxEmail = $outboxService->createReply($emailData);
+
+            logger()->info('Email creado en bandeja de salida', [
+                'outbox_email_id' => $outboxEmail->id,
+                'case_id' => $this->caseId,
+                'to' => $this->to,
+                'subject' => $this->subject
+            ]);
+
+            $this->dispatch('email-queued', $this->caseId);
+            $this->dispatch('notify', 'Email agregado a bandeja de salida - Se enviará automáticamente', 'success');
+            
+            return redirect()->route('agente');
+
+        } catch (\Exception $e) {
+            logger()->error('Error creando email de salida', [
+                'error' => $e->getMessage(),
+                'case_id' => $this->caseId
+            ]);
+
+            $this->dispatch('notify', 'Error: ' . $e->getMessage(), 'error');
+        }
     }
 
     public function saveDraft()
