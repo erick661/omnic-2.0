@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\ImportedEmail;
-use App\Models\User;
 use Illuminate\Support\Collection;
 use Livewire\Volt\Component;
 
@@ -16,11 +14,9 @@ new class extends Component
             'id' => 1,
             'name' => 'Juan Pérez',
             'email' => 'juan.perez@empresa.com',
-            'avatar' => 'https://i.pravatar.cc/100?u=1'
+            'avatar' => 'https://i.pravatar.cc/100?u=1',
         ];
     }
-
-   
 
     public function casosAgentes(): Collection
     {
@@ -40,7 +36,9 @@ new class extends Component
     public function selectCase($caseId)
     {
         $this->selectedCase = $caseId;
-        $this->dispatch('case-selected', $caseId);
+
+        // Navegar a la pantalla de visualización del caso
+        return redirect()->route('case.view', ['caseId' => $caseId]);
     }
 
     public function openChannelResponse($caseId, $channel = 'email')
@@ -49,23 +47,21 @@ new class extends Component
         if ($case) {
             // Navegar al componente dedicado del canal
             $routeName = "case.{$channel}";
-            
+
             return redirect()->route($routeName, [
                 'caseId' => $caseId,
-                'caseData' => $case
+                'caseData' => $case,
             ]);
         }
-        
+
         $this->dispatch('notify', 'Caso no encontrado', 'error');
     }
 
-
-
     public function getPriorityBadgeClass($priority): string
     {
-        return match($priority) {
+        return match ($priority) {
             'high' => 'badge-error',
-            'medium' => 'badge-warning', 
+            'medium' => 'badge-warning',
             'low' => 'badge-success',
             default => 'badge-neutral'
         };
@@ -73,7 +69,7 @@ new class extends Component
 
     public function getCategoryBadgeClass($category): string
     {
-        return match($category) {
+        return match ($category) {
             'billing' => 'badge-primary',
             'account' => 'badge-secondary',
             'bug' => 'badge-error',
@@ -84,7 +80,7 @@ new class extends Component
     }
 
     public function with(): array
-    {   
+    {
         $casosAgentes = $this->casosAgentes();
 
         return [
@@ -94,7 +90,6 @@ new class extends Component
             'totalCases' => $casosAgentes->count(),
         ];
     }
-
 }; ?>
 
 

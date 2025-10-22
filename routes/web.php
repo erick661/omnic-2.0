@@ -12,6 +12,9 @@ Route::middleware(['centralized.auth'])->group(function () {
     Volt::route('/supervisor', 'inbox.supervisor');
     Volt::route('/agente', 'inbox.agente')->name('agente');
     
+    // Ruta de visualización del caso
+    Volt::route('/case/{caseId}', 'cases.view-case')->name('case.view');
+    
     // Rutas de componentes de canal dedicados
     Volt::route('/case/{caseId}/email', 'channels.email-response')->name('case.email');
     Volt::route('/case/{caseId}/whatsapp', 'channels.whatsapp-response')->name('case.whatsapp');
