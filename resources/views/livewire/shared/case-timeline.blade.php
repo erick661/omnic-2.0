@@ -296,95 +296,107 @@ new class extends Component
                 });
             @endphp
 
-            {{-- Timeline usando Mary UI --}}
-            <x-timeline>
-                @foreach($timelineItems as $item)
-                    <x-timeline-item 
-                        :icon="$item['icon']" 
-                        :pending="$item['pending']"
-                        :first="$item['first']"
-                        :last="$item['last']"
-                        class="{{ $this->getChannelColor($item['type']) }}"
-                    >
-                        {{-- Header del item --}}
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="flex items-center gap-3">
-                                <x-avatar 
-                                    image="{{ $item['avatar'] }}" 
-                                    class="w-8 h-8 shrink-0"
+            {{-- Timeline personalizado --}}
+            <div class="space-y-0">
+                @foreach($timelineItems as $index => $item)
+                    <div class="relative">
+                        {{-- Línea vertical del timeline (excepto para el último elemento) --}}
+                        @if(!$loop->last)
+                            <div class="absolute left-6 top-12 bottom-0 w-0.5 bg-base-300"></div>
+                        @endif
+
+                        <div class="flex gap-4 pb-6">
+                            {{-- Icono del canal con círculo --}}
+                            <div class="relative z-10 flex items-center justify-center w-12 h-12 rounded-full {{ $item['pending'] ? 'bg-base-300' : 'bg-primary' }} shrink-0">
+                                <x-icon 
+                                    name="{{ $item['icon'] }}" 
+                                    class="w-5 h-5 {{ $item['pending'] ? 'text-base-content' : 'text-base-100' }}"
                                 />
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-2 flex-wrap">
-                                        <span class="font-medium text-sm">{{ $item['title'] }}</span>
-                                        @if($allCases && $item['case_id'] != $caseId)
-                                            <x-badge 
-                                                value="#{{ $item['case_id'] }}" 
-                                                class="badge-xs badge-outline"
-                                            />
-                                        @endif
-                                        <x-badge 
-                                            value="{{ $item['priority']['label'] }}" 
-                                            class="badge-xs {{ $item['priority']['class'] }}"
+                            </div>
+
+                            {{-- Contenido principal --}}
+                            <div class="flex-1 min-w-0 pt-1">
+                                {{-- Header del item --}}
+                                <div class="flex items-start justify-between gap-3 mb-3">
+                                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                                        <x-avatar 
+                                            image="{{ $item['avatar'] }}" 
+                                            class="w-8 h-8 shrink-0"
                                         />
-                                        <x-badge 
-                                            value="{{ $item['status']['label'] }}" 
-                                            class="badge-xs {{ $item['status']['class'] }}"
-                                        />
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex items-center gap-2 flex-wrap mb-1">
+                                                <span class="font-semibold text-sm {{ $this->getChannelColor($item['type']) }}">
+                                                    {{ $item['title'] }}
+                                                </span>
+                                                @if($allCases && $item['case_id'] != $caseId)
+                                                    <x-badge 
+                                                        value="#{{ $item['case_id'] }}" 
+                                                        class="badge-xs badge-outline"
+                                                    />
+                                                @endif
+                                                <x-badge 
+                                                    value="{{ $item['priority']['label'] }}" 
+                                                    class="badge-xs {{ $item['priority']['class'] }}"
+                                                />
+                                                <x-badge 
+                                                    value="{{ $item['status']['label'] }}" 
+                                                    class="badge-xs {{ $item['status']['class'] }}"
+                                                />
+                                            </div>
+                                            
+                                            @if($allCases)
+                                                <p class="text-xs text-base-content/60 truncate">{{ $item['subtitle'] }}</p>
+                                            @endif
+                                        </div>
                                     </div>
                                     
-                                    @if($allCases)
-                                        <p class="text-xs text-gray-600 truncate">{{ $item['subtitle'] }}</p>
+                                    <div class="text-right shrink-0">
+                                        <div class="text-xs font-medium text-base-content/80">{{ $item['time'] }}</div>
+                                        <div class="text-xs text-base-content/60">{{ $item['date'] }}</div>
+                                    </div>
+                                </div>
+
+                                {{-- Contenido del mensaje --}}
+                                <div class="bg-base-100 border border-base-300 rounded-lg p-4 {{ $item['direction'] === 'outbound' ? 'border-l-4 border-l-primary bg-primary/5' : '' }}">
+                                    <p class="text-sm leading-relaxed">{{ $item['description'] }}</p>
+                                    
+                                    @if($item['has_attachments'])
+                                        <div class="flex items-center gap-2 mt-3 pt-3 border-t border-base-300">
+                                            <x-icon name="o-paper-clip" class="w-4 h-4 text-base-content/60" />
+                                            <span class="text-xs text-base-content/60 font-medium">Archivo adjunto disponible</span>
+                                        </div>
                                     @endif
                                 </div>
-                            </div>
-                            
-                            <div class="text-right shrink-0">
-                                <div class="text-xs text-gray-500">{{ $item['time'] }}</div>
-                                <div class="text-xs text-gray-400">{{ $item['date'] }}</div>
+                                
+                                {{-- Acciones rápidas --}}
+                                <div class="flex gap-4 mt-3">
+                                    @if($item['direction'] === 'inbound' && in_array($item['status']['label'], ['Abierto', 'En Progreso']))
+                                        <button class="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1">
+                                            <x-icon name="o-arrow-uturn-left" class="w-3 h-3" />
+                                            Responder
+                                        </button>
+                                    @endif
+                                    
+                                    @if($item['case_id'] != $caseId)
+                                        <button 
+                                            class="text-xs text-info hover:text-info/80 font-medium flex items-center gap-1"
+                                            onclick="window.location.href='/case/{{ $item['case_id'] }}/{{ $item['type'] }}'"
+                                        >
+                                            <x-icon name="o-arrow-top-right-on-square" class="w-3 h-3" />
+                                            Ver caso
+                                        </button>
+                                    @endif
+                                    
+                                    <button class="text-xs text-base-content/60 hover:text-base-content/80 font-medium flex items-center gap-1">
+                                        <x-icon name="o-eye" class="w-3 h-3" />
+                                        Detalles
+                                    </button>
+                                </div>
                             </div>
                         </div>
-
-                        {{-- Contenido del mensaje --}}
-                        <div class="mt-3">
-                            <div class="text-sm p-3 rounded-lg {{ $item['direction'] === 'outbound' ? 'bg-primary/10 border-l-2 border-primary' : 'bg-base-200' }}">
-                                {{ $item['description'] }}
-                                
-                                @if($item['has_attachments'])
-                                    <div class="flex items-center gap-1 mt-2 pt-2 border-t border-base-300">
-                                        <x-icon name="o-paper-clip" class="w-3 h-3 text-gray-400" />
-                                        <span class="text-xs text-gray-500">Tiene adjuntos</span>
-                                    </div>
-                                @endif
-                            </div>
-                            
-                            {{-- Acciones rápidas --}}
-                            <div class="flex gap-3 mt-2">
-                                @if($item['direction'] === 'inbound' && in_array($item['status']['label'], ['Abierto', 'En Progreso']))
-                                    <button class="text-xs text-primary hover:underline">
-                                        <x-icon name="o-arrow-uturn-left" class="w-3 h-3 inline mr-1" />
-                                        Responder
-                                    </button>
-                                @endif
-                                
-                                @if($item['case_id'] != $caseId)
-                                    <button 
-                                        class="text-xs text-info hover:underline"
-                                        onclick="window.location.href='/case/{{ $item['case_id'] }}/{{ $item['type'] }}'"
-                                    >
-                                        <x-icon name="o-arrow-top-right-on-square" class="w-3 h-3 inline mr-1" />
-                                        Ver caso
-                                    </button>
-                                @endif
-                                
-                                <button class="text-xs text-gray-500 hover:underline">
-                                    <x-icon name="o-eye" class="w-3 h-3 inline mr-1" />
-                                    Detalles
-                                </button>
-                            </div>
-                        </div>
-                    </x-timeline-item>
+                    </div>
                 @endforeach
-            </x-timeline>
+            </div>
 
             {{-- Mensaje cuando no hay comunicaciones --}}
             @if(empty($communications))
