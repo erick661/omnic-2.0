@@ -8,11 +8,6 @@ use Livewire\Volt\Component;
 new class extends Component
 {
     public $selectedCase = null;
-    public $showEmailModal = false;
-    public $showWhatsappModal = false;
-    public $showSmsModal = false;
-    public $showChatModal = false;
-    public $selectedCaseData = null;
 
     public function getAuthUser(): array
     {
@@ -48,30 +43,23 @@ new class extends Component
         $this->dispatch('case-selected', $caseId);
     }
 
-    public function openReplyModal($caseId, $channel = 'email')
+    public function openChannelResponse($caseId, $channel = 'email')
     {
         $case = $this->casosAgentes()->firstWhere('id', $caseId);
         if ($case) {
-            $this->selectedCaseData = $case;
+            // Navegar al componente dedicado del canal
+            $routeName = "case.{$channel}";
             
-            // Abrir el modal correspondiente al canal
-            match($channel) {
-                'email' => $this->showEmailModal = true,
-                'whatsapp' => $this->showWhatsappModal = true,
-                'sms' => $this->showSmsModal = true,
-                'chat' => $this->showChatModal = true,
-            };
+            return redirect()->route($routeName, [
+                'caseId' => $caseId,
+                'caseData' => $case
+            ]);
         }
+        
+        $this->dispatch('notify', 'Caso no encontrado', 'error');
     }
 
-    public function closeReplyModal()
-    {
-        $this->showEmailModal = false;
-        $this->showWhatsappModal = false;
-        $this->showSmsModal = false;
-        $this->showChatModal = false;
-        $this->selectedCaseData = null;
-    }
+
 
     public function getPriorityBadgeClass($priority): string
     {
@@ -217,19 +205,19 @@ new class extends Component
                                             <x-icon name="o-chat-bubble-left-ellipsis" class="w-3 h-3" />
                                         </div>
                                         <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'email')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
                                                 <x-icon name="o-envelope" class="w-4 h-4" />
                                                 Responder por Email
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'whatsapp')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
                                                 <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
                                                 Responder por WhatsApp
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'sms')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
                                                 <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
                                                 Responder por SMS
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'chat')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
                                                 <x-icon name="o-computer-desktop" class="w-4 h-4" />
                                                 Responder por Chat
                                             </a></li>
@@ -314,19 +302,19 @@ new class extends Component
                                             <x-icon name="o-chat-bubble-left-ellipsis" class="w-3 h-3" />
                                         </div>
                                         <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'email')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
                                                 <x-icon name="o-envelope" class="w-4 h-4" />
                                                 Responder por Email
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'whatsapp')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
                                                 <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
                                                 Responder por WhatsApp
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'sms')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
                                                 <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
                                                 Responder por SMS
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'chat')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
                                                 <x-icon name="o-computer-desktop" class="w-4 h-4" />
                                                 Responder por Chat
                                             </a></li>
@@ -414,19 +402,19 @@ new class extends Component
                                             <x-icon name="o-eye" class="w-3 h-3" />
                                         </div>
                                         <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow">
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'email')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'email')">
                                                 <x-icon name="o-envelope" class="w-4 h-4" />
                                                 Ver por Email
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'whatsapp')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'whatsapp')">
                                                 <x-icon name="o-chat-bubble-oval-left" class="w-4 h-4" />
                                                 Ver por WhatsApp
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'sms')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'sms')">
                                                 <x-icon name="o-device-phone-mobile" class="w-4 h-4" />
                                                 Ver por SMS
                                             </a></li>
-                                            <li><a wire:click="openReplyModal({{ $caso['id'] }}, 'chat')">
+                                            <li><a wire:click="openChannelResponse({{ $caso['id'] }}, 'chat')">
                                                 <x-icon name="o-computer-desktop" class="w-4 h-4" />
                                                 Ver por Chat
                                             </a></li>
@@ -446,174 +434,7 @@ new class extends Component
         </div>
     </div>
 
-    {{-- Modal Email --}}
-    <x-modal wire:model="showEmailModal" title="Responder por Email" class="backdrop-blur reply-modal-width">
-        @if($selectedCaseData)
-            {{-- Header del caso --}}
-            <div class="mb-6 p-4 bg-base-200 rounded-lg">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="font-semibold text-lg">{{ $selectedCaseData['subject'] }}</h3>
-                        <p class="text-sm text-gray-600">Caso #{{ $selectedCaseData['id'] }} • {{ \Carbon\Carbon::parse($selectedCaseData['assigned_at'])->format('d/m/Y H:i') }}</p>
-                        <div class="flex gap-2 mt-2">
-                            <x-badge 
-                                value="{{ ucfirst($selectedCaseData['priority']) }}" 
-                                class="badge-xs {{ $this->getPriorityBadgeClass($selectedCaseData['priority']) }}"
-                            />
-                            <x-badge 
-                                value="{{ ucfirst($selectedCaseData['category']) }}" 
-                                class="badge-xs {{ $this->getCategoryBadgeClass($selectedCaseData['category']) }}"
-                            />
-                        </div>
-                    </div>
-                    <x-badge value="Email" class="badge-primary" />
-                </div>
-            </div>
 
-            {{-- Contenido principal en dos columnas --}}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {{-- Columna izquierda: Formulario --}}
-                <div class="space-y-4">
-                    <h4 class="font-semibold flex items-center gap-2">
-                        <x-icon name="o-pencil" class="w-4 h-4" />
-                        Nueva Respuesta
-                    </h4>
-
-                    <x-input 
-                        label="Para:" 
-                        value="cliente@empresa.com"
-                        icon="o-envelope"
-                        readonly
-                    />
-
-                    <x-input 
-                        label="Asunto:" 
-                        value="Re: {{ $selectedCaseData['subject'] }}"
-                        icon="o-document-text"
-                        readonly
-                    />
-
-                    <x-textarea 
-                        label="Mensaje:" 
-                        placeholder="Escribe tu respuesta aquí..."
-                        rows="12"
-                        hint="Mínimo 10 caracteres"
-                    />
-
-                    {{-- Herramientas de formato --}}
-                    <div class="flex gap-2 p-2 bg-base-200 rounded">
-                        <x-button icon="o-bold" class="btn-xs btn-ghost" tooltip="Negrita" />
-                        <x-button icon="o-italic" class="btn-xs btn-ghost" tooltip="Cursiva" />
-                        <x-button icon="o-link" class="btn-xs btn-ghost" tooltip="Enlace" />
-                        <x-button icon="o-list-bullet" class="btn-xs btn-ghost" tooltip="Lista" />
-                        <x-button icon="o-paper-clip" class="btn-xs btn-ghost" tooltip="Adjuntar" />
-                    </div>
-                    
-                    <p class="text-xs text-gray-500">Mínimo 10 caracteres</p>
-                </div>
-
-                {{-- Columna derecha: Historial --}}
-                <div>
-                    <h4 class="font-semibold mb-3 flex items-center gap-2">
-                        <x-icon name="o-clock" class="w-4 h-4" />
-                        Historial de conversación
-                    </h4>
-                    
-                    <div class="space-y-4 max-h-96 overflow-y-auto bg-base-100 p-4 rounded-lg border">
-                        {{-- Mensaje inicial del cliente --}}
-                        <div class="flex gap-3">
-                            <x-avatar image="https://i.pravatar.cc/100?u=cliente" class="!w-10 !h-10" />
-                            <div class="flex-1">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="font-medium">Cliente</span>
-                                    <span class="text-xs text-gray-500">{{ \Carbon\Carbon::parse($selectedCaseData['assigned_at'])->format('d/m/Y H:i') }}</span>
-                                    <x-badge value="Email" class="badge-xs badge-outline" />
-                                </div>
-                                <div class="text-sm bg-base-200 p-4 rounded-lg">
-                                    <strong>Asunto:</strong> {{ $selectedCaseData['subject'] }}<br><br>
-                                    Estimados, tengo un problema relacionado con este tema. 
-                                    Podrían ayudarme a resolverlo? Es importante para mí.
-                                    <br><br>
-                                    Quedo atento a su respuesta.
-                                    <br><br>
-                                    Saludos cordiales.
-                                </div>
-                            </div>
-                        </div>
-
-                        @if($selectedCaseData['comments'] > 0)
-                            {{-- Respuestas anteriores simuladas --}}
-                            <div class="flex gap-3">
-                                <x-avatar image="{{ $this->getAuthUser()['avatar'] }}" class="!w-10 !h-10" />
-                                <div class="flex-1">
-                                    <div class="flex items-center gap-2 mb-2">
-                                        <span class="font-medium">{{ $this->getAuthUser()['name'] }}</span>
-                                        <span class="text-xs text-gray-500">{{ \Carbon\Carbon::parse($selectedCaseData['assigned_at'])->addHours(2)->format('d/m/Y H:i') }}</span>
-                                        <x-badge value="Email" class="badge-xs badge-primary" />
-                                    </div>
-                                    <div class="text-sm bg-primary/10 p-4 rounded-lg">
-                                        <strong>Asunto:</strong> Re: {{ $selectedCaseData['subject'] }}<br><br>
-                                        Estimado cliente,<br><br>
-                                        Gracias por contactarnos. Hemos revisado tu caso y estamos trabajando en una solución.
-                                        Te mantendremos informado del progreso.<br><br>
-                                        Si tienes alguna pregunta adicional, no dudes en contactarnos.<br><br>
-                                        Saludos cordiales,<br>
-                                        {{ $this->getAuthUser()['name'] }}
-                                    </div>
-                                </div>
-                            </div>
-                        @endif
-                    </div>
-                </div>
-            </div>
-
-            {{-- Botones de acción --}}
-            <x-slot:actions>
-                <x-button label="Cancelar" wire:click="closeReplyModal" />
-                <x-button 
-                    label="Enviar Email" 
-                    class="btn-primary" 
-                    icon="o-paper-airplane"
-                />
-            </x-slot:actions>
-        @endif
-    </x-modal>
-
-    {{-- Modal WhatsApp --}}
-    <x-modal wire:model="showWhatsappModal" title="Responder por WhatsApp" class="backdrop-blur reply-modal-width">
-        <div class="text-center py-12">
-            <x-icon name="o-wrench-screwdriver" class="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <h3 class="text-lg font-semibold mb-2">WhatsApp en Construcción</h3>
-            <p class="text-gray-600">Esta funcionalidad estará disponible próximamente.</p>
-        </div>
-        <x-slot:actions>
-            <x-button label="Cerrar" wire:click="closeReplyModal" class="btn-primary" />
-        </x-slot:actions>
-    </x-modal>
-
-    {{-- Modal SMS --}}
-    <x-modal wire:model="showSmsModal" title="Responder por SMS" class="backdrop-blur reply-modal-width">
-        <div class="text-center py-12">
-            <x-icon name="o-wrench-screwdriver" class="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <h3 class="text-lg font-semibold mb-2">SMS en Construcción</h3>
-            <p class="text-gray-600">Esta funcionalidad estará disponible próximamente.</p>
-        </div>
-        <x-slot:actions>
-            <x-button label="Cerrar" wire:click="closeReplyModal" class="btn-primary" />
-        </x-slot:actions>
-    </x-modal>
-
-    {{-- Modal Chat --}}
-    <x-modal wire:model="showChatModal" title="Responder por Chat Web" class="backdrop-blur reply-modal-width">
-        <div class="text-center py-12">
-            <x-icon name="o-wrench-screwdriver" class="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <h3 class="text-lg font-semibold mb-2">Chat Web en Construcción</h3>
-            <p class="text-gray-600">Esta funcionalidad estará disponible próximamente.</p>
-        </div>
-        <x-slot:actions>
-            <x-button label="Cerrar" wire:click="closeReplyModal" class="btn-primary" />
-        </x-slot:actions>
-    </x-modal>
 
     {{-- Toast notifications --}}
     <x-toast />

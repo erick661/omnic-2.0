@@ -53,6 +53,7 @@ return [
         'health',
         'up',
         'api/*',
+        'livewire/*',
     ],
 
 ];
