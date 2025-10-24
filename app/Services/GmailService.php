@@ -7,10 +7,8 @@ use Google\Service\Gmail;
 use Google\Service\Gmail\Message;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use App\Models\SystemConfig;
 use App\Models\ImportedEmail;
 use App\Models\GmailGroup;
-use App\Models\OAuthToken;
 
 // Función auxiliar para base64url encoding
 if (!function_exists('base64url_encode')) {
@@ -32,7 +30,7 @@ class GmailService
     }
 
     /**
-     * Configurar el cliente de Google
+     * Configurar el cliente de Google con Service Account
      */
     private function setupClient(): void
     {
@@ -42,151 +40,57 @@ class GmailService
             Gmail::GMAIL_MODIFY,
             Gmail::GMAIL_SEND
         ]);
-        $this->client->setAuthConfig([
-            'client_id' => config('services.google.client_id'),
-            'client_secret' => config('services.google.client_secret'),
-            'redirect_uris' => [config('services.google.redirect_uri')]
-        ]);
-        $this->client->setAccessType('offline');
-        $this->client->setPrompt('consent');
-
-        // Cargar token desde base de datos
-        $this->loadTokenFromDatabase();
-    }
-    
-    /**
-     * Cargar token OAuth desde base de datos
-     */
-    private function loadTokenFromDatabase(): void
-    {
-        $oauthToken = OAuthToken::getActiveToken('gmail');
         
-        if ($oauthToken) {
-            $tokenArray = $oauthToken->getTokenArray();
-            $this->client->setAccessToken($tokenArray);
-            
-            Log::info('Token OAuth cargado desde base de datos');
-            
-            // Verificar si necesita renovación
-            if ($this->client->isAccessTokenExpired()) {
-                $this->refreshTokenIfNeeded($oauthToken);
-            }
-        } else {
-            Log::warning('No se encontró token OAuth activo en base de datos');
-        }
+        // Configurar Service Account
+        $this->setupServiceAccountAuth();
     }
-    
+
     /**
-     * Renovar token si está expirado
+     * Configurar autenticación con Service Account
      */
-    private function refreshTokenIfNeeded(OAuthToken $oauthToken): bool
+    private function setupServiceAccountAuth(): void
     {
         try {
-            $refreshToken = $oauthToken->getDecryptedRefreshToken();
-            
-            if ($refreshToken) {
-                Log::info('Renovando token OAuth expirado...');
-                
-                $newToken = $this->client->fetchAccessTokenWithRefreshToken($refreshToken);
-                
-                if (!empty($newToken) && !isset($newToken['error'])) {
-                    // Actualizar token en base de datos
-                    $oauthToken->updateWithRefreshedToken($newToken);
-                    
-                    Log::info('Token OAuth renovado exitosamente');
-                    return true;
-                } else {
-                    Log::error('Error renovando token OAuth', $newToken);
-                    return false;
-                }
-            } else {
-                Log::error('No hay refresh token disponible para renovación');
-                return false;
+            // Intentar usar Application Default Credentials (recomendado)
+            $keyFile = getenv('GOOGLE_APPLICATION_CREDENTIALS');
+            if ($keyFile && file_exists($keyFile)) {
+                $this->client->useApplicationDefaultCredentials();
+                $this->client->setSubject('admin@orproverificaciones.cl'); // Email de impersonación  
+                Log::info('✅ GmailService usando Application Default Credentials');
+                return;
             }
-            
+
+            // Fallback: usar service account key path del config
+            $keyPath = config('services.google.service_account_key');
+            if ($keyPath && file_exists($keyPath)) {
+                $this->client->setAuthConfig($keyPath);
+                $this->client->setSubject('admin@orproverificaciones.cl');
+                Log::info('✅ GmailService usando Service Account Key');
+                return;
+            }
+
+            throw new \Exception('No se encontró configuración de Service Account válida');
+
         } catch (\Exception $e) {
-            Log::error('Excepción renovando token OAuth', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return false;
+            Log::error('❌ Error configurando Service Account: ' . $e->getMessage());
+            throw new \Exception('No se pudo configurar autenticación Service Account: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Obtener URL de autorización para configuración inicial
-     */
-    public function getAuthUrl(): string
-    {
-        return $this->client->createAuthUrl();
-    }
 
     /**
-     * Procesar código de autorización y almacenar refresh token
-     */
-    public function handleAuthCallback(string $authCode): bool
-    {
-        try {
-            $token = $this->client->fetchAccessTokenWithAuthCode($authCode);
-            
-            if (isset($token['error'])) {
-                Log::error('Error en OAuth callback', $token);
-                return false;
-            }
-            
-            // Guardar token en base de datos
-            OAuthToken::storeToken('gmail', $token, null, [
-                'created_via' => 'auth_callback',
-                'user_agent' => request()->header('User-Agent'),
-                'ip_address' => request()->ip()
-            ]);
-            
-            Log::info('Token OAuth guardado exitosamente en base de datos');
-            return true;
-            
-        } catch (\Exception $e) {
-            Log::error('Error en callback de Gmail', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return false;
-        }
-    }
-
-    /**
-     * Verificar si está autenticado
+     * Verificar si está autenticado (Service Account)
      */
     public function isAuthenticated(): bool
     {
         try {
-            $oauthToken = OAuthToken::getActiveToken('gmail');
-            
-            if (!$oauthToken) {
-                Log::info('No se encontró token OAuth activo');
-                return false;
-            }
-            
-            // Cargar token en el cliente si no está cargado
-            if (!$this->client->getAccessToken()) {
-                $this->loadTokenFromDatabase();
-            }
-            
-            // Si está expirado, intentar renovar
-            if ($this->client->isAccessTokenExpired()) {
-                Log::info('Token expirado, intentando renovar...');
-                
-                if (!$this->refreshTokenIfNeeded($oauthToken)) {
-                    Log::error('No se pudo renovar el token');
-                    return false;
-                }
-            }
-
-            // Verificar haciendo una petición simple
+            // Con Service Account, verificar haciendo una petición simple
             $profile = $this->gmailService->users->getProfile('me');
+            Log::info('✅ Service Account autenticado como: ' . $profile->getEmailAddress());
             return !empty($profile->getEmailAddress());
             
         } catch (\Exception $e) {
-            Log::error('Error verificando autenticación: ' . $e->getMessage());
+            Log::error('❌ Error verificando autenticación Service Account: ' . $e->getMessage());
             return false;
         }
     }

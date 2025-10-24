@@ -108,9 +108,30 @@ class TestServiceAccount extends Command
 
             $client->setAuthConfig($serviceAccountPath);
             $client->setScopes([
-                Gmail::GMAIL_READONLY,
-                Gmail::GMAIL_SEND,
-                Drive::DRIVE_READONLY
+                // Gmail - Funcionalidad completa de correo
+                'https://www.googleapis.com/auth/gmail.readonly',
+                'https://www.googleapis.com/auth/gmail.send',
+                'https://www.googleapis.com/auth/gmail.modify',
+                'https://www.googleapis.com/auth/gmail.compose',
+                
+                // Admin Directory - Gestión de grupos y usuarios
+                'https://www.googleapis.com/auth/admin.directory.group',
+                'https://www.googleapis.com/auth/admin.directory.group.member',
+                'https://www.googleapis.com/auth/admin.directory.user.readonly',
+                
+                // Drive - Gestión completa de archivos
+                'https://www.googleapis.com/auth/drive',
+                'https://www.googleapis.com/auth/drive.file',
+                
+                // Chat - Funcionalidad validada
+                'https://www.googleapis.com/auth/chat.messages.create',
+                'https://www.googleapis.com/auth/chat.messages.readonly',
+                'https://www.googleapis.com/auth/chat.spaces',
+                'https://www.googleapis.com/auth/chat.spaces.readonly',
+                
+                // Calendar - Funcionalidad futura
+                'https://www.googleapis.com/auth/calendar',
+                'https://www.googleapis.com/auth/calendar.events'
             ]);
             $client->setSubject($adminEmail);
 
@@ -291,13 +312,30 @@ class TestServiceAccount extends Command
         $client = new Client();
         $client->setAuthConfig(env('GOOGLE_SERVICE_ACCOUNT_PATH'));
         $client->setScopes([
-            Gmail::GMAIL_READONLY,
-            Gmail::GMAIL_SEND,
-            Gmail::GMAIL_MODIFY,
-            Drive::DRIVE,
-            Drive::DRIVE_FILE,
+            // Gmail - Funcionalidad completa de correo
+            'https://www.googleapis.com/auth/gmail.readonly',
+            'https://www.googleapis.com/auth/gmail.send',
+            'https://www.googleapis.com/auth/gmail.modify',
+            'https://www.googleapis.com/auth/gmail.compose',
+            
+            // Admin Directory - Gestión de grupos y usuarios
             'https://www.googleapis.com/auth/admin.directory.group',
-            'https://www.googleapis.com/auth/admin.directory.user.readonly'
+            'https://www.googleapis.com/auth/admin.directory.group.member',
+            'https://www.googleapis.com/auth/admin.directory.user.readonly',
+            
+            // Drive - Gestión completa de archivos
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/drive.file',
+            
+            // Chat - Funcionalidad validada
+            'https://www.googleapis.com/auth/chat.messages.create',
+            'https://www.googleapis.com/auth/chat.messages.readonly',
+            'https://www.googleapis.com/auth/chat.spaces',
+            'https://www.googleapis.com/auth/chat.spaces.readonly',
+            
+            // Calendar - Funcionalidad futura
+            'https://www.googleapis.com/auth/calendar',
+            'https://www.googleapis.com/auth/calendar.events'
         ]);
         
         return $client;

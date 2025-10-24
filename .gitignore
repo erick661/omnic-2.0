@@ -3,6 +3,18 @@
 .env
 .env.backup
 .env.production
+
+# Google Service Account (contiene credenciales sensibles)
+google-service-account.json
+storage/app/google-credentials/
+
+# Archivos temporales de desarrollo
+*_temp.php
+*_test.php
+*_prueba.php
+*_final.php
+*_v2.php
+*_backup.php
 .phpactor.json
 .phpunit.result.cache
 /.fleet
