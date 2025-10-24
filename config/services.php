@@ -36,17 +36,23 @@ return [
     ],
 
     'google' => [
+        // OAuth Configuration (fallback)
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect_uri' => env('GOOGLE_REDIRECT_URI', env('APP_URL') . '/auth/gmail/callback'),
         
-        // Para Application Default Credentials
+        // Service Account Configuration (primary)
+        'service_account_path' => env('GOOGLE_SERVICE_ACCOUNT_PATH'),
+        'admin_email' => env('GOOGLE_WORKSPACE_ADMIN_EMAIL'),
+        'workspace_domain' => env('GOOGLE_WORKSPACE_DOMAIN'),
+        'client_id_service_account' => env('GOOGLE_SERVICE_ACCOUNT_CLIENT_ID'),
+        
+        // Drive Configuration
+        'drive_root_folder' => env('GOOGLE_DRIVE_ROOT_FOLDER_NAME', 'Omnic Email Attachments'),
+        
+        // Legacy configurations
         'service_account_key' => env('GOOGLE_SERVICE_ACCOUNT_KEY_PATH'),
-        
-        // Para Workload Identity Federation
         'workload_identity' => env('GOOGLE_WORKLOAD_IDENTITY_CONFIG') ? json_decode(env('GOOGLE_WORKLOAD_IDENTITY_CONFIG'), true) : null,
-        
-        // Email de impersonación para Domain-wide Delegation
         'subject_email' => env('GOOGLE_SUBJECT_EMAIL', 'orpro@orproverificaciones.cl'),
     ],
 
