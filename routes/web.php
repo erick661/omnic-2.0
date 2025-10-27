@@ -26,6 +26,15 @@ Route::middleware(['centralized.auth'])->group(function () {
 // Ruta de logout (sin middleware)
 Route::post('/auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
+// Rutas de debug temporales (sin middleware de autenticación)
+Route::prefix('debug')->group(function () {
+    Volt::route('/test', 'test-component')->name('debug.test');
+    Volt::route('/agente-simple', 'inbox.agente-simple')->name('debug.agente-simple');
+    Volt::route('/agente-debug', 'inbox.agente-debug')->name('debug.agente-debug');
+    Volt::route('/agente', 'inbox.agente')->name('debug.agente');
+    Volt::route('/supervisor', 'inbox.supervisor')->name('debug.supervisor');
+});
+
 // Rutas para autenticación OAuth2 con Gmail (protegidas)
 Route::middleware(['centralized.auth'])->group(function () {
     Route::get('/auth/gmail', [GoogleAuthController::class, 'redirectToGoogle'])->name('auth.gmail');

@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Collection;
 use Livewire\Volt\Component;
+use App\Models\ImportedEmail;
+use App\Models\User;
 
 new class extends Component
 {
@@ -9,28 +11,101 @@ new class extends Component
 
     public function getAuthUser(): array
     {
-        // Usuario simulado para desarrollo
+        $user = auth()->user();
+        
+        if (!$user) {
+            // Fallback para desarrollo/debug - usar usuario de la DB o crear uno temporal
+            return [
+                'id' => 16069813, // ID del usuario autenticado en los logs
+                'name' => 'Lucas Muñoz',
+                'email' => 'lucas.munoz@orpro.cl',
+                'avatar' => 'https://i.pravatar.cc/100?u=lucas.munoz',
+            ];
+        }
+        
         return [
-            'id' => 1,
-            'name' => 'Juan Pérez',
-            'email' => 'juan.perez@empresa.com',
-            'avatar' => 'https://i.pravatar.cc/100?u=1',
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'avatar' => 'https://i.pravatar.cc/100?u=' . urlencode($user->email),
         ];
     }
 
     public function casosAgentes(): Collection
     {
-        $casos = [
-            ['id' => 1, 'subject' => 'Problema con facturación mensual', 'status' => 'asignado', 'assigned_at' => '2024-06-01 10:00:00', 'have_attachment' => true, 'priority' => 'high', 'category' => 'billing', 'comments' => 3],
-            ['id' => 2, 'subject' => 'Error en configuración de cuenta', 'status' => 'asignado', 'assigned_at' => '2024-06-02 11:30:00', 'have_attachment' => false, 'priority' => 'medium', 'category' => 'account', 'comments' => 1],
-            ['id' => 3, 'subject' => 'Solicitud de nueva funcionalidad', 'status' => 'asignado', 'assigned_at' => '2024-06-03 14:15:00', 'have_attachment' => false, 'priority' => 'low', 'category' => 'feature', 'comments' => 0],
-            ['id' => 4, 'subject' => 'Bug crítico en el sistema', 'status' => 'en_progreso', 'assigned_at' => '2024-06-04 09:20:00', 'have_attachment' => true, 'priority' => 'high', 'category' => 'bug', 'comments' => 5],
-            ['id' => 5, 'subject' => 'Actualización de datos personales', 'status' => 'en_progreso', 'assigned_at' => '2024-06-05 16:45:00', 'have_attachment' => false, 'priority' => 'low', 'category' => 'account', 'comments' => 2],
-            ['id' => 6, 'subject' => 'Consulta sobre servicios premium', 'status' => 'resuelto', 'assigned_at' => '2024-06-06 08:30:00', 'have_attachment' => false, 'priority' => 'medium', 'category' => 'support', 'comments' => 4],
-            ['id' => 7, 'subject' => 'Integración con API externa', 'status' => 'resuelto', 'assigned_at' => '2024-06-07 13:10:00', 'have_attachment' => true, 'priority' => 'high', 'category' => 'feature', 'comments' => 8],
-        ];
+        // Usar datos reales de la base de datos
+        $currentUserId = $this->getAuthUser()['id'];
+        
+        $emails = ImportedEmail::with(['gmailGroup'])
+            ->whereIn('case_status', ['assigned', 'opened', 'in_progress', 'resolved'])
+            ->where('assigned_to', $currentUserId)
+            ->orderBy('received_at', 'desc')
+            ->get();
 
-        return collect($casos);
+        return $emails->map(function ($email) {
+            return [
+                'id' => $email->id,
+                'subject' => $email->subject,
+                'status' => $this->mapCaseStatus($email->case_status),
+                'assigned_at' => $email->received_at->format('Y-m-d H:i:s'),
+                'have_attachment' => $email->has_attachments ?? false,
+                'priority' => $this->determinePriority($email),
+                'category' => $this->determineCategory($email),
+                'comments' => 0, // Por ahora 0, en el futuro contar comentarios reales
+                'from_email' => $email->from_email,
+                'from_name' => $email->from_name,
+                'group_name' => $email->gmailGroup->name ?? 'Sin grupo',
+            ];
+        });
+    }
+    
+    private function mapCaseStatus(string $caseStatus): string
+    {
+        return match ($caseStatus) {
+            'pending', 'assigned', 'opened' => 'asignado',
+            'in_progress' => 'en_progreso',
+            'resolved', 'closed' => 'resuelto',
+            default => 'asignado'
+        };
+    }
+    
+    private function determinePriority(ImportedEmail $email): string
+    {
+        // Lógica básica para determinar prioridad
+        if (str_contains(strtolower($email->subject), 'urgente') || 
+            str_contains(strtolower($email->subject), 'crítico')) {
+            return 'high';
+        }
+        
+        if (str_contains(strtolower($email->subject), 'consulta') || 
+            str_contains(strtolower($email->subject), 'info')) {
+            return 'low';
+        }
+        
+        return 'medium';
+    }
+    
+    private function determineCategory(ImportedEmail $email): string
+    {
+        $subject = strtolower($email->subject);
+        
+        if (str_contains($subject, 'facturación') || str_contains($subject, 'billing')) {
+            return 'billing';
+        }
+        
+        if (str_contains($subject, 'cuenta') || str_contains($subject, 'account')) {
+            return 'account';
+        }
+        
+        if (str_contains($subject, 'bug') || str_contains($subject, 'error')) {
+            return 'bug';
+        }
+        
+        if (str_contains($subject, 'feature') || str_contains($subject, 'funcionalidad')) {
+            return 'feature';
+        }
+        
+        return 'support';
     }
 
     public function selectCase($caseId)

@@ -1,0 +1,909 @@
+// OMNIC 2.0 - Database Structure OPTIMIZED
+// Compatible with dbdiagram.io
+// Generated: 2024-10-27
+// Version: 2.0 - Unified Email Architecture
+
+Project omnic_optimized {
+  database_type: 'PostgreSQL'
+  Note: '''
+    OMNIC 2.0 - Sistema Unificado de Correos y Casos
+    Arquitectura Optimizada: Tabla única para todos los emails
+    
+    CAMBIOS PRINCIPALES:
+    1. emails: Unifica imported_emails + gmail_metadata + outbox_emails
+    2. email_queue: Cola específica para envíos
+    3. email_dispatch_log: Log de disparos
+    4. Detección automática de rebotes
+  '''
+}
+
+// =============================================
+// CORE SYSTEM TABLES
+// =============================================
+
+Table users {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  email varchar(255) [unique, not null]
+  email_verified_at timestamp
+  password varchar(255) [not null]
+  remember_token varchar(100)
+  role varchar(255) [default: 'ejecutivo']
+  is_active boolean [default: true]
+  email_alias varchar(255)
+  nickname varchar(255)
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Sistema de usuarios Laravel'
+}
+
+Table user_roles {
+  id bigserial [pk, increment]
+  user_id bigint [not null]
+  role varchar(255) [not null]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Roles adicionales de usuarios'
+}
+
+Table oauth_tokens {
+  id bigserial [pk, increment]
+  provider varchar(255) [default: 'gmail']
+  identifier varchar(255)
+  access_token text [not null]
+  refresh_token text
+  scopes json
+  expires_at timestamp
+  metadata json
+  is_active boolean [default: true]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Tokens OAuth para Gmail/Google APIs'
+}
+
+Table system_config {
+  id bigserial [pk, increment]
+  key varchar(255) [not null]
+  value text
+  description text
+  updated_at timestamp [default: 'CURRENT_TIMESTAMP']
+  
+  Note: 'Configuraciones del sistema'
+}
+
+// =============================================
+// UNIFIED EMAIL MANAGEMENT (CORE CHANGE)
+// =============================================
+
+Table emails {
+  id bigserial [pk, increment]
+  
+  // Identificadores únicos
+  gmail_message_id varchar(255) [unique]
+  gmail_thread_id varchar(255)
+  
+  // Dirección del flujo
+  direction varchar(20) [not null] // 'inbound', 'outbound'
+  
+  // Datos básicos del email
+  subject text
+  from_email varchar(255) [not null]
+  from_name varchar(255)
+  to_email varchar(255) [not null]
+  to_name varchar(255)
+  cc_emails json
+  bcc_emails json
+  reply_to varchar(255)
+  body_text text
+  body_html text
+  
+  // Timestamps
+  received_at timestamp // Para inbound
+  sent_at timestamp // Para outbound
+  created_at timestamp
+  updated_at timestamp
+  
+  // Estados y clasificación
+  status varchar(50) [default: 'pending']
+  priority varchar(20) [default: 'medium']
+  category varchar(50)
+  tags json
+  
+  // Adjuntos
+  has_attachments boolean [default: false]
+  
+  // Relaciones
+  gmail_group_id bigint // Solo para inbound
+  case_id bigint
+  assigned_to bigint
+  assigned_by bigint
+  assigned_at timestamp
+  parent_email_id bigint // Para hilos/respuestas
+  
+  // Metadatos Gmail (unificados desde gmail_metadata)
+  gmail_headers json
+  gmail_labels json
+  gmail_size_estimate bigint
+  gmail_snippet text
+  gmail_internal_date bigint
+  gmail_history_id bigint
+  raw_headers json
+  message_references text
+  in_reply_to varchar(255)
+  
+  // Control de procesamiento
+  processed_at timestamp
+  processed_by bigint
+  
+  // Estados específicos (desde imported_emails)
+  marked_as_spam boolean [default: false]
+  spam_marked_by bigint
+  spam_marked_at timestamp
+  marked_resolved_at timestamp
+  auto_resolved_at timestamp
+  derived_to_supervisor boolean [default: false]
+  derivation_notes text
+  derived_at timestamp
+  assignment_notes text
+  
+  // Datos específicos de empleador (desde imported_emails)
+  rut_empleador varchar(8)
+  dv_empleador varchar(1)
+  reference_code_id bigint
+  
+  // Estados de rebote (para outbound)
+  bounced_at timestamp
+  bounce_reason text
+  bounce_type varchar(50) // 'hard', 'soft', 'spam', 'unknown'
+  
+  // Sincronización (desde gmail_metadata)
+  sync_status varchar(255) [default: 'pending']
+  last_sync_at timestamp
+  sync_error_message text
+  is_backed_up boolean [default: false]
+  backup_at timestamp
+  eml_download_url varchar(500)
+  eml_backup_path varchar(500)
+  attachments_metadata json
+  
+  Indexes {
+    gmail_message_id
+    gmail_thread_id
+    direction
+    status
+    gmail_group_id
+    case_id
+    assigned_to
+    received_at
+    sent_at
+    parent_email_id
+    rut_empleador
+    reference_code_id
+  }
+  
+  Note: '''
+    TABLA UNIFICADA de emails inbound y outbound
+    
+    DIRECTION:
+    - inbound: Emails recibidos (importados de Gmail)
+    - outbound: Emails enviados (creados por nosotros)
+    
+    STATUS (inbound): pending, assigned, in_progress, resolved, spam
+    STATUS (outbound): draft, queued, sent, delivered, bounced, failed
+    
+    PRIORITY: low, medium, high, urgent
+    BOUNCE_TYPE: hard (permanente), soft (temporal), spam, unknown
+    
+    UNIFICA:
+    - imported_emails (inbound emails)
+    - gmail_metadata (metadatos Gmail)
+    - outbox_emails (outbound emails)
+  '''
+}
+
+// =============================================
+// EMAIL QUEUE FOR OUTBOUND (NEW)
+// =============================================
+
+Table email_queue {
+  id bigserial [pk, increment]
+  
+  // Datos mínimos para envío
+  to_email varchar(255) [not null]
+  to_name varchar(255)
+  cc_emails json
+  bcc_emails json
+  subject varchar(255) [not null]
+  body_html text [not null]
+  body_text text
+  
+  // Control de envío
+  status varchar(50) [default: 'queued']
+  priority varchar(20) [default: 'normal']
+  scheduled_at timestamp [default: 'CURRENT_TIMESTAMP']
+  attempts int [default: 0]
+  max_attempts int [default: 3]
+  
+  // Timestamps de control
+  queued_at timestamp [default: 'CURRENT_TIMESTAMP']
+  processing_at timestamp
+  sent_at timestamp
+  failed_at timestamp
+  
+  // Resultados del envío
+  gmail_message_id varchar(255) // ID devuelto por Gmail API
+  gmail_thread_id varchar(255)
+  error_message text
+  
+  // Relaciones
+  template_id bigint
+  case_id bigint // Para asociar con caso
+  parent_email_id bigint // Para respuestas
+  created_by bigint [not null]
+  
+  // Adjuntos (referencia)
+  attachments json
+  
+  // Control de respuesta automática
+  mark_as_resolved boolean [default: false]
+  
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    status
+    scheduled_at
+    priority
+    case_id
+    created_by
+    gmail_message_id
+    parent_email_id
+  }
+  
+  Note: '''
+    COLA DE ENVÍO de emails
+    
+    STATUS: queued, processing, sent, failed, cancelled
+    
+    FLUJO:
+    1. Se crea registro en 'queued'
+    2. Job lo toma → 'processing'
+    3. Gmail API envía → 'sent' + gmail_message_id
+    4. Se crea registro en tabla 'emails' con direction='outbound'
+    5. Se elimina de queue (o se marca como processed)
+  '''
+}
+
+// =============================================
+// EMAIL DISPATCH LOG (NEW)
+// =============================================
+
+Table email_dispatch_log {
+  id bigserial [pk, increment]
+  
+  // Referencia al email enviado
+  email_queue_id bigint [not null]
+  email_id bigint // Referencia al email creado después del envío
+  
+  // Datos del dispatch
+  dispatch_method varchar(50) [default: 'gmail_api']
+  attempted_at timestamp [not null]
+  completed_at timestamp
+  
+  // Resultado
+  success boolean [default: false]
+  gmail_message_id varchar(255)
+  gmail_thread_id varchar(255)
+  
+  // Detalles técnicos
+  request_data json // Datos enviados a Gmail API
+  response_data json // Respuesta completa de Gmail API
+  error_code varchar(50)
+  error_message text
+  
+  // Métricas
+  processing_time_ms int
+  api_quota_used int
+  
+  // Control de rebotes
+  bounce_detected_at timestamp
+  bounce_email_id bigint // Referencia al email de rebote recibido
+  
+  created_at timestamp
+  
+  Indexes {
+    email_queue_id
+    email_id
+    attempted_at
+    success
+    gmail_message_id
+    bounce_email_id
+  }
+  
+  Note: '''
+    LOG de disparos de email
+    
+    Registra cada intento de envío con:
+    - Datos técnicos del API
+    - Tiempos de procesamiento
+    - Errores detallados
+    - Consumo de quota
+    - Detección de rebotes
+  '''
+}
+
+// =============================================
+// EMAIL ATTACHMENTS (UNIFIED)
+// =============================================
+
+Table email_attachments {
+  id bigserial [pk, increment]
+  
+  // Puede asociarse a cualquier email (inbound/outbound)
+  email_id bigint [not null] // Referencia a tabla emails unificada
+  
+  // Datos del archivo
+  original_filename varchar(255) [not null]
+  stored_filename varchar(255)
+  file_path varchar(500) [not null]
+  mime_type varchar(100) [not null]
+  file_size bigint [not null]
+  
+  // Storage (Drive)
+  drive_file_id varchar(255)
+  drive_path text
+  drive_folder_id varchar(255)
+  
+  // Estados
+  status varchar(50) [default: 'pending']
+  uploaded_at timestamp
+  error_message text
+  
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    email_id
+    status
+    drive_file_id
+  }
+  
+  Note: '''
+    Adjuntos unificados para emails inbound y outbound
+    STATUS: pending, uploaded, failed, deleted
+    
+    REEMPLAZA: email_attachments + outbox_attachments
+  '''
+}
+
+// =============================================
+// GMAIL INTEGRATION
+// =============================================
+
+Table gmail_groups {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  email varchar(255) [not null]
+  is_active boolean [default: true]
+  is_generic boolean [default: false]
+  assigned_user_id bigint
+  gmail_label varchar(255)
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: '''
+    Grupos de Gmail para organización de correos
+    Corresponde a labels/etiquetas en Gmail
+  '''
+}
+
+// =============================================
+// CASE MANAGEMENT
+// =============================================
+
+Table cases {
+  id bigserial [pk, increment]
+  case_number varchar(20) [not null]
+  employer_rut varchar(8)
+  employer_dv varchar(1)
+  employer_name varchar(255)
+  employer_phone varchar(20)
+  employer_email varchar(255)
+  status varchar(255) [default: 'pending']
+  priority varchar(255) [default: 'normal']
+  assigned_to bigint
+  assigned_by bigint
+  assigned_at timestamp
+  origin_channel varchar(255) [not null]
+  origin_communication_id bigint
+  campaign_id bigint
+  first_response_at timestamp
+  last_activity_at timestamp
+  resolved_at timestamp
+  internal_notes text
+  auto_category varchar(100)
+  tags json
+  response_time_hours int
+  resolution_time_hours int
+  communication_count int [default: 0]
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    case_number [unique]
+    status
+    assigned_to
+    employer_rut
+    origin_channel
+    created_at
+  }
+  
+  Note: '''
+    Casos de atención al cliente
+    STATUS: pending, assigned, in_progress, resolved, closed
+    ORIGIN_CHANNEL: email, phone, chat, web
+  '''
+}
+
+Table case_metrics {
+  id bigserial [pk, increment]
+  case_id bigint [not null]
+  email_count int [default: 0]
+  whatsapp_count int [default: 0]
+  sms_count int [default: 0]
+  phone_count int [default: 0]
+  webchat_count int [default: 0]
+  avg_email_response_hours numeric
+  avg_whatsapp_response_hours numeric
+  avg_sms_response_hours numeric
+  avg_phone_response_hours numeric
+  preferred_channel varchar(255)
+  preferred_channel_detected_at timestamp
+  satisfaction_score int
+  satisfaction_collected_at timestamp
+  total_interaction_time_hours numeric
+  escalation_count int [default: 0]
+  sla_breach boolean [default: false]
+  sla_breach_at timestamp
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Métricas detalladas de casos'
+}
+
+Table communications {
+  id bigserial [pk, increment]
+  case_id bigint [not null]
+  channel_type varchar(255) [not null]
+  direction varchar(255) [not null]
+  external_id varchar(255)
+  thread_id varchar(255)
+  subject varchar(500)
+  content_text text
+  content_html text
+  from_contact varchar(255)
+  from_name varchar(255)
+  to_contact varchar(255)
+  cc_contacts json
+  channel_metadata json
+  attachments json
+  status varchar(255) [default: 'pending']
+  received_at timestamp
+  sent_at timestamp
+  delivered_at timestamp
+  read_at timestamp
+  reference_code varchar(50)
+  in_reply_to bigint
+  processed_at timestamp
+  processed_by bigint
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    case_id
+    channel_type
+    direction
+    status
+    external_id
+    received_at
+  }
+  
+  Note: '''
+    Comunicaciones generales (multi-canal)
+    CHANNEL_TYPE: email, phone, chat, sms, whatsapp
+    DIRECTION: inbound, outbound
+  '''
+}
+
+// =============================================
+// CONTACT MANAGEMENT
+// =============================================
+
+Table contacts {
+  id bigserial [pk, increment]
+  email varchar(255) [not null]
+  first_name varchar(255)
+  last_name varchar(255)
+  company varchar(255)
+  rut_empleador varchar(8)
+  dv_empleador varchar(1)
+  producto varchar(50)
+  phone varchar(50)
+  attributes json
+  is_active boolean [default: true]
+  brevo_contact_id bigint
+  imported_from varchar(100)
+  imported_at timestamp
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    email [unique]
+    rut_empleador
+    is_active
+    brevo_contact_id
+  }
+  
+  Note: 'Contactos del sistema'
+}
+
+Table contact_lists {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  description text
+  filter_criteria json
+  brevo_list_id bigint
+  created_by bigint [not null]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Listas de contactos para campañas'
+}
+
+Table contact_list_members {
+  id bigserial [pk, increment]
+  contact_id bigint [not null]
+  contact_list_id bigint [not null]
+  added_at timestamp [default: 'CURRENT_TIMESTAMP']
+  
+  Note: 'Miembros de listas de contactos'
+}
+
+// =============================================
+// REFERENCE CODES
+// =============================================
+
+Table reference_codes {
+  id bigserial [pk, increment]
+  rut_empleador varchar(8) [not null]
+  dv_empleador varchar(1) [not null]
+  producto varchar(50) [not null]
+  code_hash varchar(255) [not null]
+  assigned_user_id bigint [not null]
+  case_id bigint
+  channel_type varchar(255)
+  channel_metadata json
+  usage_count int [default: 0]
+  last_used_at timestamp
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Códigos de referencia para seguimiento'
+}
+
+// =============================================
+// CAMPAIGN MANAGEMENT
+// =============================================
+
+Table campaigns {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  description text
+  status varchar(255) [default: 'draft']
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Campañas generales'
+}
+
+Table campaign_sends {
+  id bigserial [pk, increment]
+  campaign_id bigint [not null]
+  contact_id bigint [not null]
+  email varchar(255) [not null]
+  send_status varchar(255) [default: 'pending']
+  sent_at timestamp
+  delivered_at timestamp
+  opened_at timestamp
+  clicked_at timestamp
+  brevo_message_id varchar(255)
+  error_message text
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Envíos de campañas'
+}
+
+Table email_campaigns {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  subject varchar(500) [not null]
+  html_content text [not null]
+  text_content text
+  from_email varchar(255) [not null]
+  from_name varchar(255) [not null]
+  status varchar(255) [default: 'draft']
+  scheduled_at timestamp
+  started_at timestamp
+  completed_at timestamp
+  total_recipients int [default: 0]
+  sent_count int [default: 0]
+  delivered_count int [default: 0]
+  opened_count int [default: 0]
+  clicked_count int [default: 0]
+  bounced_count int [default: 0]
+  brevo_campaign_id bigint
+  created_by bigint [not null]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Campañas de email específicas'
+}
+
+// =============================================
+// EMAIL TEMPLATES
+// =============================================
+
+Table email_templates {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  subject varchar(255) [not null]
+  body_html text
+  body_text text
+  variables json
+  category varchar(100)
+  is_active boolean [default: true]
+  created_by bigint
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: '''
+    Plantillas de emails
+    Variables: JSON con placeholders disponibles
+  '''
+}
+
+// =============================================
+// PHONE COMMUNICATIONS (NEW MODEL)
+// =============================================
+
+Table phone_communications {
+  id bigserial [pk, increment]
+  communication_id bigint [not null]
+  phone_number varchar(20) [not null]
+  call_duration_seconds int
+  call_type varchar(255) [not null]
+  call_status varchar(255) [not null]
+  recording_url varchar(500)
+  recording_duration_seconds int
+  call_summary text
+  follow_up_required boolean [default: false]
+  follow_up_date date
+  caller_id varchar(255)
+  phone_metadata json
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Comunicaciones telefónicas específicas'
+}
+
+// =============================================
+// LARAVEL SYSTEM TABLES
+// =============================================
+
+Table migrations {
+  id int [pk, increment]
+  migration varchar(255) [not null]
+  batch int [not null]
+  
+  Note: 'Control de migraciones Laravel'
+}
+
+Table failed_jobs {
+  id bigserial [pk, increment]
+  uuid varchar(255) [unique, not null]
+  connection text [not null]
+  queue text [not null]
+  payload text [not null]
+  exception text [not null]
+  failed_at timestamp [default: 'CURRENT_TIMESTAMP']
+  
+  Note: 'Jobs fallidos de Laravel'
+}
+
+Table jobs {
+  id bigserial [pk, increment]
+  queue varchar(255) [not null]
+  payload text [not null]
+  attempts smallint [not null]
+  reserved_at int
+  available_at int [not null]
+  created_at int [not null]
+  
+  Note: 'Cola de jobs de Laravel'
+}
+
+Table job_batches {
+  id varchar(255) [pk]
+  name varchar(255) [not null]
+  total_jobs int [not null]
+  pending_jobs int [not null]
+  failed_jobs int [not null]
+  failed_job_ids text [not null]
+  options text
+  cancelled_at int
+  created_at int [not null]
+  finished_at int
+  
+  Note: 'Lotes de jobs de Laravel'
+}
+
+Table cache {
+  key varchar(255) [pk]
+  value text [not null]
+  expiration int [not null]
+  
+  Note: 'Cache de Laravel'
+}
+
+Table cache_locks {
+  key varchar(255) [pk]
+  owner varchar(255) [not null]
+  expiration int [not null]
+  
+  Note: 'Locks de cache de Laravel'
+}
+
+Table sessions {
+  id varchar(255) [pk]
+  user_id bigint
+  ip_address varchar(45)
+  user_agent text
+  payload text [not null]
+  last_activity int [not null]
+  
+  Note: 'Sesiones de Laravel'
+}
+
+Table password_reset_tokens {
+  email varchar(255) [pk]
+  token varchar(255) [not null]
+  created_at timestamp
+  
+  Note: 'Tokens de reseteo de contraseñas'
+}
+
+// =============================================
+// FOREIGN KEY RELATIONSHIPS
+// =============================================
+
+// User relationships
+Ref: user_roles.user_id > users.id
+
+// Email relationships (UNIFIED)
+Ref: emails.gmail_group_id > gmail_groups.id
+Ref: emails.case_id > cases.id
+Ref: emails.assigned_to > users.id
+Ref: emails.assigned_by > users.id
+Ref: emails.processed_by > users.id
+Ref: emails.parent_email_id > emails.id // Self-reference para hilos
+Ref: emails.reference_code_id > reference_codes.id
+Ref: emails.spam_marked_by > users.id
+
+// Email queue relationships  
+Ref: email_queue.template_id > email_templates.id
+Ref: email_queue.case_id > cases.id
+Ref: email_queue.parent_email_id > emails.id
+Ref: email_queue.created_by > users.id
+
+// Email dispatch log relationships
+Ref: email_dispatch_log.email_queue_id > email_queue.id
+Ref: email_dispatch_log.email_id > emails.id
+Ref: email_dispatch_log.bounce_email_id > emails.id
+
+// Attachment relationships (UNIFIED)
+Ref: email_attachments.email_id > emails.id
+
+// Gmail relationships
+Ref: gmail_groups.assigned_user_id > users.id
+
+// Case relationships  
+Ref: cases.assigned_to > users.id
+Ref: cases.assigned_by > users.id
+Ref: case_metrics.case_id > cases.id
+
+// Communication relationships
+Ref: communications.case_id > cases.id
+Ref: communications.in_reply_to > communications.id
+Ref: communications.processed_by > users.id
+Ref: phone_communications.communication_id > communications.id
+
+// Contact relationships
+Ref: contact_list_members.contact_id > contacts.id
+Ref: contact_list_members.contact_list_id > contact_lists.id
+Ref: contact_lists.created_by > users.id
+
+// Reference code relationships
+Ref: reference_codes.assigned_user_id > users.id
+Ref: reference_codes.case_id > cases.id
+
+// Campaign relationships
+Ref: campaign_sends.campaign_id > campaigns.id
+Ref: campaign_sends.contact_id > contacts.id
+Ref: email_campaigns.created_by > users.id
+
+// Template relationships
+Ref: email_templates.created_by > users.id
+
+// Session relationships
+Ref: sessions.user_id > users.id
+
+// =============================================
+// TABLE GROUPS FOR VISUALIZATION
+// =============================================
+
+TableGroup "Core System" {
+  users
+  user_roles
+  oauth_tokens
+  system_config
+  migrations
+}
+
+TableGroup "Unified Email System" {
+  emails
+  email_queue
+  email_dispatch_log
+  email_attachments
+  email_templates
+}
+
+TableGroup "Gmail Integration" {
+  gmail_groups
+}
+
+TableGroup "Case Management" {
+  cases
+  case_metrics
+  communications
+  phone_communications
+}
+
+TableGroup "Contact Management" {
+  contacts
+  contact_lists
+  contact_list_members
+}
+
+TableGroup "Reference System" {
+  reference_codes
+}
+
+TableGroup "Campaign Management" {
+  campaigns
+  campaign_sends
+  email_campaigns
+}
+
+TableGroup "Laravel System" {
+  failed_jobs
+  jobs
+  job_batches
+  cache
+  cache_locks
+  sessions
+  password_reset_tokens
+}
