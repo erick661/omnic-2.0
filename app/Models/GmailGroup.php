@@ -9,24 +9,22 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class GmailGroup extends Model
 {
     protected $fillable = [
-        'name',
-        'email',
-        'is_active',
-        'is_generic',
+        'group_email',
+        'group_name', 
+        'group_type',
         'assigned_user_id',
+        'import_enabled',
         'gmail_label',
+        'is_active'
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'is_active' => 'boolean',
-            'is_generic' => 'boolean',
-        ];
-    }
+    protected $casts = [
+        'is_active' => 'boolean',
+        'import_enabled' => 'boolean'
+    ];
 
     /**
-     * Usuario asignado para grupos genéricos
+     * Usuario asignado responsable del grupo
      */
     public function assignedUser(): BelongsTo
     {
@@ -34,34 +32,75 @@ class GmailGroup extends Model
     }
 
     /**
-     * Correos importados para este grupo
+     * Emails asociados a este grupo
      */
-    public function importedEmails(): HasMany
+    public function emails(): HasMany
     {
-        return $this->hasMany(ImportedEmail::class);
+        return $this->hasMany(Email::class, 'gmail_group_id');
     }
 
     /**
-     * Scope para grupos activos
+     * Miembros del grupo Gmail
+     */
+    public function members(): HasMany
+    {
+        return $this->hasMany(GmailGroupMember::class);
+    }
+
+    /**
+     * Eventos relacionados con este grupo
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class, 'aggregate_id')
+                    ->where('aggregate_type', 'gmail_group');
+    }
+
+    /**
+     * Scopes
      */
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    /**
-     * Scope para grupos genéricos
-     */
+    public function scopeImportEnabled($query)
+    {
+        return $query->where('import_enabled', true);
+    }
+
+    public function scopePersonal($query)
+    {
+        return $query->where('group_type', 'personal');
+    }
+
     public function scopeGeneric($query)
     {
-        return $query->where('is_generic', true);
+        return $query->where('group_type', 'generic');
+    }
+
+    public function scopeForUser($query, int $userId)
+    {
+        return $query->where('assigned_user_id', $userId);
     }
 
     /**
-     * Scope para grupos de ejecutivos
+     * Check if group should be imported
      */
-    public function scopeExecutive($query)
+    public function shouldImport(): bool
     {
-        return $query->where('is_generic', false);
+        return $this->is_active && $this->import_enabled;
+    }
+
+    /**
+     * Get the primary member email (usually comunicaciones@orpro.cl)
+     */
+    public function getPrimaryMemberEmail(): ?string
+    {
+        return $this->members()
+            ->where('is_active', true)
+            ->where('member_role', 'MEMBER')
+            ->first()
+            ?->member_email;
     }
 }

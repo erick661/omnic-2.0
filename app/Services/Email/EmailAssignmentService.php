@@ -2,163 +2,173 @@
 
 namespace App\Services\Email;
 
-use App\Models\ImportedEmail;
-use App\Models\User;
+use App\Models\Email;
+use App\Services\Event\EventStore;
+use App\Services\Assignment\Contracts\AssignmentStrategyInterface;
+use App\Services\Assignment\Strategies\MassCampaignStrategy;
+use App\Services\Assignment\Strategies\CaseCodeStrategy;
+use App\Services\Assignment\Strategies\GmailGroupStrategy;
+use App\Services\Assignment\Strategies\SupervisorFallbackStrategy;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 
+/**
+ * ✅ SOLID - Dependency Inversion: Depende de abstracciones (interfaces), no de implementaciones
+ * ✅ SOLID - Open/Closed: Abierto para extensión (nuevas estrategias), cerrado para modificación
+ * ✅ Event-Driven: Registra eventos de asignación para auditabilidad
+ */
 class EmailAssignmentService
 {
-    /**
-     * ✅ SRP: Solo responsabilidad de asignar emails
-     */
-    public function assignEmailToAgent(array $data): array
+    private EventStore $eventStore;
+    
+    /** @var AssignmentStrategyInterface[] */
+    private array $strategies;
+
+    public function __construct(EventStore $eventStore)
     {
-        return DB::transaction(function () use ($data) {
-            $email = ImportedEmail::find($data['email_id']);
+        $this->eventStore = $eventStore;
+        
+        // ✅ SOLID - Dependency Injection: Estrategias inyectadas automáticamente
+        $this->strategies = [
+            new MassCampaignStrategy(),      // Prioridad 1: Envíos masivos
+            new CaseCodeStrategy(),          // Prioridad 2: Casos existentes
+            new GmailGroupStrategy(),        // Prioridad 3: Gmail Groups
+            new SupervisorFallbackStrategy() // Prioridad 999: Fallback
+        ];
+        
+        // Ordenar por prioridad
+        usort($this->strategies, fn($a, $b) => $a->getPriority() <=> $b->getPriority());
+    }
+
+    /**
+     * ✅ SRP: SOLO responsabilidad de ejecutar estrategias de asignación
+     * ✅ Event-Driven: Registra eventos para cada asignación
+     */
+    public function assignEmail(Email $email): void
+    {
+        try {
+            Log::info("Iniciando asignación estratégica de email", [
+                'email_id' => $email->id,
+                'gmail_message_id' => $email->gmail_message_id,
+                'from_email' => $email->from_email,
+                'subject' => $email->subject,
+                'total_strategies' => count($this->strategies)
+            ]);
+
+            $assigned = false;
             
-            if (!$email) {
-                throw new \InvalidArgumentException("Email con ID {$data['email_id']} no encontrado");
-            }
-
-            // Verificar que el agente existe
-            $agent = User::find($data['agent_id']);
-            if (!$agent) {
-                throw new \InvalidArgumentException("Agente con ID {$data['agent_id']} no encontrado");
-            }
-
-            // Verificar supervisor si se proporciona
-            if (!empty($data['supervisor_id'])) {
-                $supervisor = User::find($data['supervisor_id']);
-                if (!$supervisor) {
-                    throw new \InvalidArgumentException("Supervisor con ID {$data['supervisor_id']} no encontrado");
+            // ✅ Strategy Pattern: Ejecutar estrategias en orden de prioridad
+            foreach ($this->strategies as $strategy) {
+                if ($strategy->canHandle($email)) {
+                    Log::info("Ejecutando estrategia de asignación", [
+                        'email_id' => $email->id,
+                        'strategy' => get_class($strategy),
+                        'priority' => $strategy->getPriority()
+                    ]);
+                    
+                    $assignedUserId = $strategy->assign($email);
+                    $reason = $strategy->getAssignmentReason();
+                    
+                    // Registrar resultado (incluso si es null para casos existentes)
+                    $this->recordAssignmentResult($email, $assignedUserId, $reason, get_class($strategy));
+                    
+                    $assigned = true;
+                    break; // Solo ejecutamos la primera estrategia que puede manejar el email
                 }
             }
 
-            // Verificar si ya está asignado
-            if ($email->case_status !== 'pending' && $email->assigned_to) {
-                Log::warning('Email ya asignado', [
-                    'email_id' => $email->id,
-                    'current_agent' => $email->assigned_to,
-                    'current_status' => $email->case_status
-                ]);
+            if (!$assigned) {
+                $this->recordAssignmentFailure($email, 'Ninguna estrategia pudo manejar el email');
             }
 
-            // Realizar asignación
-            $email->update([
-                'case_status' => 'assigned',
-                'assigned_to' => $data['agent_id'],
-                'assigned_by' => $data['supervisor_id'] ?? null,
-                'assigned_at' => now(),
-                'assignment_notes' => $data['notes'] ?? 'Asignado via sistema'
-            ]);
-
-            Log::info('Email asignado exitosamente', [
+        } catch (\Exception $e) {
+            Log::error("Error en asignación estratégica", [
                 'email_id' => $email->id,
-                'agent_id' => $data['agent_id'],
-                'supervisor_id' => $data['supervisor_id'] ?? null,
-                'subject' => $email->subject
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
-            return [
-                'success' => true,
-                'email' => [
-                    'id' => $email->id,
-                    'subject' => $email->subject,
-                    'assigned_to' => $email->assigned_to,
-                    'assigned_by' => $email->assigned_by,
-                    'assigned_at' => $email->assigned_at->format('Y-m-d H:i:s'),
-                    'case_status' => $email->case_status
+            $this->eventStore->recordError(
+                'email_assignment',
+                "Error en asignación estratégica: " . $e->getMessage(),
+                [
+                    'email_id' => $email->id,
+                    'from_email' => $email->from_email,
+                    'subject' => $email->subject
                 ],
-                'agent' => [
-                    'id' => $agent->id,
-                    'name' => $agent->name,
-                    'email' => $agent->email
-                ]
-            ];
-        });
+                'email',
+                $email->id
+            );
+        }
     }
 
     /**
-     * Asignar múltiples emails a un agente
+     * Asignación manual por supervisor (API legacy compatibility)
      */
-    public function assignMultipleEmails(array $emailIds, int $agentId, ?int $supervisorId = null): array
+    public function assignEmailToAgent(Email $email, int $agentId, ?int $supervisorId = null, ?string $notes = null): void
     {
-        $results = ['assigned' => 0, 'errors' => 0, 'details' => []];
-
-        foreach ($emailIds as $emailId) {
-            try {
-                $this->assignEmailToAgent([
-                    'email_id' => $emailId,
-                    'agent_id' => $agentId,
-                    'supervisor_id' => $supervisorId,
-                    'notes' => 'Asignación masiva via sistema'
-                ]);
-                $results['assigned']++;
-                $results['details'][] = ['email_id' => $emailId, 'status' => 'success'];
-            } catch (\Exception $e) {
-                $results['errors']++;
-                $results['details'][] = [
-                    'email_id' => $emailId, 
-                    'status' => 'error', 
-                    'message' => $e->getMessage()
-                ];
-            }
-        }
-
-        return $results;
+        $reason = $notes ?? "Asignación manual por supervisor ID: {$supervisorId}";
+        $this->recordAssignmentResult($email, $agentId, $reason, 'ManualAssignment');
     }
 
     /**
-     * Obtener estadísticas de asignación por agente
+     * ✅ Event-Driven: Registrar resultado de asignación
      */
-    public function getAssignmentStats(?int $agentId = null): array
+    private function recordAssignmentResult(Email $email, ?int $userId, string $reason, string $strategy): void
     {
-        $query = ImportedEmail::query();
-        
-        if ($agentId) {
-            $query->where('assigned_to', $agentId);
+        if ($userId) {
+            // Asignación exitosa a usuario específico
+            $this->eventStore->emailAssigned($email->id, $userId, $reason);
+            
+            Log::info("Email asignado exitosamente", [
+                'email_id' => $email->id,
+                'assigned_to' => $userId,
+                'reason' => $reason,
+                'strategy' => $strategy
+            ]);
+        } else {
+            // Caso especial: relacionado pero sin asignación (ej: caso existente)
+            $this->eventStore->record(
+                'email.processed',
+                "Email procesado: {$reason}",
+                [
+                    'email_id' => $email->id,
+                    'reason' => $reason,
+                    'strategy' => $strategy,
+                    'requires_manual_assignment' => str_contains($reason, 'supervisor')
+                ],
+                'email',
+                $email->id
+            );
+            
+            Log::info("Email procesado sin asignación directa", [
+                'email_id' => $email->id,
+                'reason' => $reason,
+                'strategy' => $strategy
+            ]);
         }
-
-        return [
-            'total_assigned' => $query->whereNotNull('assigned_to')->count(),
-            'pending' => $query->where('case_status', 'pending')->count(),
-            'assigned' => $query->where('case_status', 'assigned')->count(),
-            'in_progress' => $query->where('case_status', 'in_progress')->count(),
-            'resolved' => $query->where('case_status', 'resolved')->count(),
-            'by_agent' => $this->getStatsByAgent($agentId)
-        ];
     }
 
-    private function getStatsByAgent(?int $agentId): array
+    /**
+     * Registrar fallo en asignación
+     */
+    private function recordAssignmentFailure(Email $email, string $reason): void
     {
-        $query = ImportedEmail::with('assignedUser')
-                              ->whereNotNull('assigned_to');
+        $this->eventStore->recordError(
+            'email_assignment',
+            "Fallo en asignación: {$reason}",
+            [
+                'email_id' => $email->id,
+                'from_email' => $email->from_email,
+                'subject' => $email->subject,
+                'gmail_group_id' => $email->gmail_group_id
+            ],
+            'email',
+            $email->id
+        );
         
-        if ($agentId) {
-            $query->where('assigned_to', $agentId);
-        }
-
-        return $query->selectRaw('
-                assigned_to,
-                COUNT(*) as total,
-                COUNT(CASE WHEN case_status = "assigned" THEN 1 END) as assigned,
-                COUNT(CASE WHEN case_status = "in_progress" THEN 1 END) as in_progress,
-                COUNT(CASE WHEN case_status = "resolved" THEN 1 END) as resolved
-            ')
-            ->groupBy('assigned_to')
-            ->get()
-            ->map(function ($stat) {
-                $user = User::find($stat->assigned_to);
-                return [
-                    'agent_id' => $stat->assigned_to,
-                    'agent_name' => $user ? $user->name : 'Usuario no encontrado',
-                    'total' => $stat->total,
-                    'assigned' => $stat->assigned,
-                    'in_progress' => $stat->in_progress,
-                    'resolved' => $stat->resolved,
-                ];
-            })
-            ->toArray();
+        Log::error("Fallo en asignación de email", [
+            'email_id' => $email->id,
+            'reason' => $reason
+        ]);
     }
 }

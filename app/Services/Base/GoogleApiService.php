@@ -83,11 +83,21 @@ abstract class GoogleApiService
     {
         $credentialsPath = $this->getServiceAccountCredentialsPath();
         
-        if (!Storage::exists($credentialsPath)) {
-            throw new \RuntimeException("Archivo de credenciales no encontrado: {$credentialsPath}");
+        // Verificar si el path es absoluto o relativo
+        if (str_starts_with($credentialsPath, '/')) {
+            // Path absoluto - usar file_exists()
+            if (!file_exists($credentialsPath)) {
+                throw new \RuntimeException("Archivo de credenciales no encontrado: {$credentialsPath}");
+            }
+            $credentialsJson = file_get_contents($credentialsPath);
+        } else {
+            // Path relativo - usar Storage
+            if (!Storage::exists($credentialsPath)) {
+                throw new \RuntimeException("Archivo de credenciales no encontrado: {$credentialsPath}");
+            }
+            $credentialsJson = Storage::get($credentialsPath);
         }
-
-        $credentialsJson = Storage::get($credentialsPath);
+        
         $credentials = json_decode($credentialsJson, true);
         
         if (!$credentials) {

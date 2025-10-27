@@ -1,0 +1,284 @@
+// CORRECCIÓN: Multi-canal + Email Queue Simplificado
+
+// =============================================
+// EMAIL QUEUE CORREGIDO - SIN DUPLICACIÓN
+// =============================================
+
+Table email_queue {
+  id bigserial [pk, increment]
+  
+  // SOLO referencia al email + control de envío
+  email_id bigint [not null] // Referencia directa a emails
+  status varchar(50) [default: 'queued']
+  scheduled_at timestamp [default: 'CURRENT_TIMESTAMP']
+  attempts int [default: 0]
+  max_attempts int [default: 3]
+  
+  // Timestamps básicos
+  queued_at timestamp [default: 'CURRENT_TIMESTAMP']
+  processing_at timestamp
+  sent_at timestamp
+  failed_at timestamp
+  
+  // Resultado mínimo
+  gmail_message_id varchar(255) // Solo cuando se envía exitosamente
+  
+  created_at timestamp
+  
+  Indexes {
+    email_id
+    status
+    scheduled_at
+  }
+  
+  Note: '''
+    Cola ultra-simplificada - SIN duplicación de datos
+    
+    TODOS los datos del email (to, subject, body, etc) están en la tabla emails
+    Esta tabla solo controla el ESTADO del envío
+    
+    FLUJO:
+    1. Se crea email en tabla emails con direction='outbound'
+    2. Se agrega referencia a email_queue 
+    3. Job procesa desde queue
+    4. Actualiza estados via eventos
+    5. Una vez enviado, se puede limpiar la queue
+  '''
+}
+
+// =============================================
+// COMMUNICATIONS - TABLA POLIMÓRFICA RESTAURADA
+// =============================================
+
+Table communications {
+  id bigserial [pk, increment]
+  case_id bigint [not null]
+  
+  // Tipo de canal (polimórfico)
+  channel_type varchar(50) [not null] // 'email', 'phone', 'whatsapp', 'sms', 'webchat'
+  channel_id bigint [not null] // ID en la tabla específica del canal
+  
+  // Datos comunes a todos los canales
+  direction varchar(20) [not null] // 'inbound', 'outbound'
+  subject varchar(500) // Para canales que lo soportan
+  content_preview text // Preview del contenido (primeros 200 chars)
+  
+  // Timestamps comunes
+  received_at timestamp
+  sent_at timestamp
+  
+  // Metadatos comunes
+  status varchar(50) [default: 'pending']
+  processed_at timestamp
+  processed_by bigint
+  
+  // Referencias
+  in_reply_to bigint // Otra comunicación de este caso
+  reference_code varchar(50)
+  
+  created_at timestamp
+  
+  Indexes {
+    case_id
+    (channel_type, channel_id) // Índice compuesto para polimorfismo
+    direction
+    status
+    received_at
+    in_reply_to
+  }
+  
+  Note: '''
+    Tabla POLIMÓRFICA para todas las comunicaciones
+    
+    MAPEO DE CANALES:
+    - channel_type='email' → channel_id=emails.id
+    - channel_type='phone' → channel_id=phone_calls.id  
+    - channel_type='whatsapp' → channel_id=whatsapp_messages.id
+    - channel_type='sms' → channel_id=sms_messages.id
+    - channel_type='webchat' → channel_id=webchat_messages.id
+    
+    VENTAJAS:
+    1. Un caso puede tener comunicaciones multi-canal
+    2. Queries unificados por caso
+    3. Timeline cronológico de todas las comunicaciones
+    4. Métricas cross-canal por caso
+  '''
+}
+
+// =============================================
+// TABLAS ESPECÍFICAS POR CANAL
+// =============================================
+
+// EMAILS (ya existe - sin cambios)
+Table emails {
+  // ... misma estructura actual
+  Note: 'Emails inbound y outbound - sin cambios'
+}
+
+// PHONE CALLS  
+Table phone_calls {
+  id bigserial [pk, increment]
+  phone_number varchar(20) [not null]
+  direction varchar(20) [not null] // 'inbound', 'outbound'
+  
+  // Datos específicos de llamada
+  call_duration_seconds int
+  call_status varchar(50) [not null] // 'completed', 'missed', 'busy', 'failed'
+  caller_id varchar(100)
+  
+  // Grabación
+  recording_url varchar(500)
+  recording_duration_seconds int
+  
+  // Contenido
+  call_summary text
+  notes text
+  
+  // Follow-up
+  follow_up_required boolean [default: false]
+  follow_up_date date
+  
+  // Timestamps
+  started_at timestamp
+  ended_at timestamp
+  created_at timestamp
+  
+  Note: 'Llamadas telefónicas específicas'
+}
+
+// WHATSAPP MESSAGES
+Table whatsapp_messages {
+  id bigserial [pk, increment]
+  phone_number varchar(20) [not null]
+  direction varchar(20) [not null]
+  
+  // Identificadores WhatsApp
+  whatsapp_id varchar(255) // ID del mensaje en WhatsApp
+  conversation_id varchar(255)
+  
+  // Contenido
+  message_type varchar(50) // 'text', 'image', 'document', 'audio', 'video'
+  content_text text
+  media_url varchar(500)
+  media_filename varchar(255)
+  media_mime_type varchar(100)
+  
+  // Estados WhatsApp
+  delivery_status varchar(50) // 'sent', 'delivered', 'read', 'failed'
+  
+  // Timestamps
+  sent_at timestamp
+  delivered_at timestamp
+  read_at timestamp
+  created_at timestamp
+  
+  Note: 'Mensajes de WhatsApp'
+}
+
+// SMS MESSAGES  
+Table sms_messages {
+  id bigserial [pk, increment]
+  phone_number varchar(20) [not null]
+  direction varchar(20) [not null]
+  
+  // Contenido SMS
+  content_text text [not null]
+  
+  // Metadatos SMS
+  sms_provider varchar(50) // 'twilio', 'aws_sns', etc
+  provider_message_id varchar(255)
+  
+  // Estados
+  delivery_status varchar(50)
+  
+  // Timestamps  
+  sent_at timestamp
+  delivered_at timestamp
+  created_at timestamp
+  
+  Note: 'Mensajes SMS'
+}
+
+// WEB CHAT MESSAGES
+Table webchat_messages {
+  id bigserial [pk, increment]
+  
+  // Identificación del visitante
+  visitor_id varchar(255) [not null] // Cookie/session del visitante
+  visitor_name varchar(255)
+  visitor_email varchar(255)
+  
+  direction varchar(20) [not null]
+  
+  // Contenido
+  message_text text [not null]
+  message_type varchar(50) [default: 'text'] // 'text', 'file', 'emoji'
+  
+  // Metadatos del chat
+  session_id varchar(255)
+  page_url varchar(500) // Página donde se inició el chat
+  user_agent text
+  
+  // Timestamps
+  sent_at timestamp
+  created_at timestamp
+  
+  Note: 'Mensajes de chat web'
+}
+
+// =============================================
+// RELATIONSHIPS CORREGIDAS
+// =============================================
+
+// Email queue corregida
+Ref: email_queue.email_id > emails.id
+
+// Communications polimórficas  
+Ref: communications.case_id > cases.id
+Ref: communications.processed_by > users.id
+Ref: communications.in_reply_to > communications.id
+
+// Las relaciones polimórficas no se pueden expresar en DBML directamente
+// Pero en Laravel serían:
+// Communication::morphTo('channel') donde:
+// - Email::morphMany('communications', 'channel')  
+// - PhoneCall::morphMany('communications', 'channel')
+// - WhatsappMessage::morphMany('communications', 'channel')
+// - etc.
+
+// =============================================
+// EJEMPLOS DE QUERIES MULTI-CANAL
+// =============================================
+
+/*
+-- Todas las comunicaciones de un caso (timeline)
+SELECT c.*, 
+  CASE c.channel_type
+    WHEN 'email' THEN e.subject
+    WHEN 'phone' THEN p.call_summary  
+    WHEN 'whatsapp' THEN w.content_text
+  END as communication_content
+FROM communications c
+LEFT JOIN emails e ON c.channel_type='email' AND c.channel_id=e.id
+LEFT JOIN phone_calls p ON c.channel_type='phone' AND c.channel_id=p.id  
+LEFT JOIN whatsapp_messages w ON c.channel_type='whatsapp' AND c.channel_id=w.id
+WHERE c.case_id = 123
+ORDER BY c.received_at, c.sent_at;
+
+-- Métricas por canal de un caso
+SELECT 
+  channel_type,
+  COUNT(*) as total_communications,
+  AVG(EXTRACT(epoch FROM (sent_at - received_at))/3600) as avg_response_hours
+FROM communications 
+WHERE case_id = 123 AND direction = 'inbound'
+GROUP BY channel_type;
+
+-- Casos con comunicaciones multi-canal
+SELECT case_id, 
+  STRING_AGG(DISTINCT channel_type, ', ') as channels_used,
+  COUNT(DISTINCT channel_type) as channel_count
+FROM communications
+GROUP BY case_id
+HAVING COUNT(DISTINCT channel_type) > 1;
+*/

@@ -1,0 +1,565 @@
+// OMNIC 2.0 - Database Structure ULTRA SIMPLIFIED WITH EVENTS
+// Compatible with dbdiagram.io
+// Generated: 2024-10-27
+// Version: 3.0 - Event-First Architecture
+
+Project omnic_event_first {
+  database_type: 'PostgreSQL'
+  Note: '''
+    OMNIC 2.0 - Arquitectura Event-First
+    
+    FILOSOFÍA:
+    - Solo datos esenciales en tablas principales
+    - Todo lo demás son eventos
+    - Estado se reconstruye desde eventos
+    - Máxima simplicidad y flexibilidad
+  '''
+}
+
+// =============================================
+// EVENT SOURCING CORE
+// =============================================
+
+Table event_types {
+  id bigserial [pk, increment]
+  event_type varchar(100) [unique, not null]
+  aggregate_type varchar(50) [not null]
+  description text [not null]
+  severity varchar(20) [default: 'info']
+  schema_version int [default: 1]
+  is_active boolean [default: true]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: '''
+    Catálogo maestro de todos los eventos posibles
+    Define estructura y validaciones para cada evento
+  '''
+}
+
+Table events {
+  id bigserial [pk, increment]
+  
+  // Identificación del evento
+  event_type varchar(100) [not null] 
+  aggregate_type varchar(50) [not null] 
+  aggregate_id bigint // Nullable para eventos de sistema
+  
+  // Datos del evento
+  event_data json [not null]
+  event_version int [default: 1]
+  
+  // Metadatos
+  triggered_by bigint
+  triggered_at timestamp [not null, default: 'CURRENT_TIMESTAMP']
+  ip_address varchar(45)
+  user_agent text
+  
+  // Contexto
+  severity varchar(20) [default: 'info']
+  process_name varchar(100)
+  job_id varchar(255)
+  correlation_id varchar(255)
+  causation_id bigint
+  
+  // Procesamiento
+  processed boolean [default: false]
+  processed_at timestamp
+  processed_by varchar(100)
+  
+  Indexes {
+    (aggregate_type, aggregate_id, triggered_at)
+    (event_type, triggered_at)
+    (severity, triggered_at)
+    triggered_by
+    correlation_id
+    process_name
+  }
+  
+  Note: '''
+    Event Store unificado - TODO pasa por aquí
+    
+    EJEMPLOS DE EVENTOS:
+    
+    EMAIL RECIBIDO:
+    {
+      "event_type": "email.received",
+      "event_data": {
+        "gmail_message_id": "17a1b2c3d4e5f6",
+        "from_email": "cliente@empresa.com",
+        "subject": "Consulta urgente",
+        "gmail_group_id": 5
+      }
+    }
+    
+    ASIGNACIÓN:
+    {
+      "event_type": "email.assigned", 
+      "event_data": {
+        "old_assigned_to": null,
+        "new_assigned_to": 123,
+        "assigned_by": 456,
+        "assignment_notes": "RUT match found"
+      }
+    }
+    
+    CAMBIO DE STATUS:
+    {
+      "event_type": "email.status_changed",
+      "event_data": {
+        "old_status": "pending",
+        "new_status": "assigned",
+        "changed_by": 123
+      }
+    }
+  '''
+}
+
+// =============================================
+// CORE ENTITIES - SOLO DATOS ESENCIALES
+// =============================================
+
+Table users {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  email varchar(255) [unique, not null]
+  password varchar(255) [not null]
+  role varchar(255) [default: 'ejecutivo']
+  is_active boolean [default: true]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: '''
+    SOLO datos esenciales del usuario
+    
+    REMOVIDO (ahora eventos):
+    - email_verified_at → user.email_verified
+    - remember_token → user.login_token_generated  
+    - email_alias, nickname → user.profile_updated
+  '''
+}
+
+Table emails {
+  id bigserial [pk, increment]
+  
+  // Identificadores únicos (inmutables)
+  gmail_message_id varchar(255) [unique]
+  gmail_thread_id varchar(255)
+  
+  // Datos básicos inmutables del mensaje
+  direction varchar(20) [not null] // 'inbound', 'outbound'
+  subject text
+  from_email varchar(255) [not null]
+  from_name varchar(255)
+  to_email varchar(255) [not null]
+  to_name varchar(255)
+  cc_emails json
+  bcc_emails json
+  body_text text
+  body_html text
+  
+  // Solo timestamps inmutables
+  gmail_internal_date bigint // Timestamp real del email en Gmail
+  created_at timestamp // Cuándo se creó el registro
+  
+  // Metadatos técnicos inmutables
+  gmail_headers json
+  gmail_labels json
+  gmail_size_estimate bigint
+  message_references text
+  in_reply_to varchar(255)
+  
+  // Relaciones básicas
+  gmail_group_id bigint // Solo para inbound
+  parent_email_id bigint // Para hilos
+  
+  Indexes {
+    gmail_message_id
+    gmail_thread_id
+    direction
+    gmail_group_id
+    parent_email_id
+    created_at
+  }
+  
+  Note: '''
+    SOLO datos inmutables del email
+    
+    REMOVIDO (ahora eventos):
+    - received_at → email.received
+    - sent_at → email.sent  
+    - updated_at → email.updated
+    - status → email.status_changed
+    - priority → (eliminado, no se maneja)
+    - category → (eliminado, no se maneja)
+    - assigned_to/by/at → email.assigned
+    - processed_at/by → email.processed
+    - marked_as_spam → email.marked_as_spam
+    - spam_marked_by/at → parte del evento anterior
+    - bounced_at/reason/type → email.bounced
+    - sync_status/last_sync_at → email.sync_*
+    - case_id → case.email_associated (el caso se asocia al email)
+    - rut_empleador/dv → van en el caso, no en email
+    - reference_code_id → va en el caso
+    
+    El email es INMUTABLE una vez creado.
+    Todo cambio de estado = evento.
+  '''
+}
+
+Table cases {
+  id bigserial [pk, increment]
+  case_number varchar(20) [not null, unique]
+  
+  // Datos del empleador (inmutables una vez creados)
+  employer_rut varchar(8)
+  employer_dv varchar(1) 
+  employer_name varchar(255)
+  employer_phone varchar(20)
+  employer_email varchar(255)
+  
+  // Origen (inmutable)
+  origin_channel varchar(255) [not null] // 'email', 'phone', 'chat'
+  origin_communication_id bigint // ID del email/comunicación origen
+  
+  // Timestamps inmutables
+  created_at timestamp
+  
+  Indexes {
+    case_number
+    employer_rut
+    origin_channel
+    created_at
+  }
+  
+  Note: '''
+    SOLO datos inmutables del caso
+    
+    REMOVIDO (ahora eventos):
+    - status → case.status_changed
+    - priority → case.priority_changed  
+    - assigned_to/by/at → case.assigned
+    - first_response_at → case.first_response_sent
+    - last_activity_at → calculado desde eventos
+    - resolved_at → case.resolved
+    - updated_at → case.updated
+    - internal_notes → case.note_added
+    - auto_category → case.categorized
+    - tags → case.tag_added/removed
+    - response_time_hours → calculado desde eventos
+    - resolution_time_hours → calculado desde eventos  
+    - communication_count → calculado desde eventos
+    - campaign_id → case.campaign_associated
+    
+    El caso es inmutable en estructura, mutable solo via eventos.
+  '''
+}
+
+Table gmail_groups {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  email varchar(255) [not null]
+  gmail_label varchar(255)
+  is_active boolean [default: true]
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: '''
+    ULTRA simplificado
+    
+    REMOVIDO (ahora eventos o configs):
+    - is_generic → system.config
+    - assigned_user_id → gmail_group.user_assigned
+    - import_enabled → system.config
+    - last_import_at → último event import.group_completed
+  '''
+}
+
+// =============================================
+// SIMPLIFIED QUEUE & ATTACHMENTS
+// =============================================
+
+Table email_queue {
+  id bigserial [pk, increment]
+  
+  // Datos mínimos para envío
+  to_email varchar(255) [not null]
+  to_name varchar(255)
+  subject varchar(255) [not null]
+  body_html text [not null]
+  body_text text
+  
+  // Control básico
+  status varchar(50) [default: 'queued'] // queued, processing, sent, failed
+  priority varchar(20) [default: 'normal']
+  scheduled_at timestamp [default: 'CURRENT_TIMESTAMP']
+  attempts int [default: 0]
+  max_attempts int [default: 3]
+  
+  // Relaciones
+  template_id bigint
+  case_id bigint
+  parent_email_id bigint
+  created_by bigint [not null]
+  
+  created_at timestamp
+  
+  Indexes {
+    status
+    scheduled_at
+    case_id
+    created_by
+  }
+  
+  Note: '''
+    Queue ultra simplificada
+    
+    REMOVIDO (ahora eventos):
+    - queued_at/processing_at/sent_at/failed_at → eventos
+    - gmail_message_id/thread_id → eventos  
+    - error_message → eventos
+    - attachments → tabla separada
+    - mark_as_resolved → evento
+    - updated_at → eventos
+  '''
+}
+
+Table email_attachments {
+  id bigserial [pk, increment]
+  email_id bigint [not null]
+  
+  // Datos inmutables del archivo
+  original_filename varchar(255) [not null]
+  mime_type varchar(100) [not null]
+  file_size bigint [not null]
+  file_path varchar(500) [not null]
+  
+  // Drive (inmutable una vez subido)
+  drive_file_id varchar(255)
+  
+  created_at timestamp
+  
+  Indexes {
+    email_id
+    drive_file_id
+  }
+  
+  Note: '''
+    SOLO datos inmutables del attachment
+    
+    REMOVIDO (ahora eventos):
+    - stored_filename → attachment.processed
+    - drive_path/folder_id → attachment.uploaded_to_drive
+    - status → attachment.upload_*
+    - uploaded_at → attachment.uploaded
+    - error_message → attachment.upload_failed
+    - updated_at → eventos
+  '''
+}
+
+// =============================================
+// CONTACT & REFERENCE DATA
+// =============================================
+
+Table contacts {
+  id bigserial [pk, increment]
+  email varchar(255) [not null, unique]
+  first_name varchar(255)
+  last_name varchar(255)
+  company varchar(255)
+  rut_empleador varchar(8)
+  dv_empleador varchar(1)
+  phone varchar(50)
+  is_active boolean [default: true]
+  created_at timestamp
+  updated_at timestamp
+  
+  Indexes {
+    email
+    rut_empleador
+  }
+  
+  Note: 'Datos básicos de contacto'
+}
+
+Table reference_codes {
+  id bigserial [pk, increment]
+  rut_empleador varchar(8) [not null]
+  dv_empleador varchar(1) [not null]
+  producto varchar(50) [not null]
+  code_hash varchar(255) [not null]
+  assigned_user_id bigint [not null]
+  created_at timestamp
+  
+  Note: '''
+    Códigos inmutables una vez creados
+    
+    REMOVIDO (ahora eventos):
+    - case_id → reference_code.used_for_case
+    - usage_count → calculado desde eventos
+    - last_used_at → último evento reference_code.used
+    - updated_at → eventos
+  '''
+}
+
+// =============================================
+// TEMPLATES & SYSTEM
+// =============================================
+
+Table email_templates {
+  id bigserial [pk, increment]
+  name varchar(255) [not null]
+  subject varchar(255) [not null]
+  body_html text
+  body_text text
+  variables json
+  is_active boolean [default: true]
+  created_by bigint
+  created_at timestamp
+  updated_at timestamp
+  
+  Note: 'Plantillas básicas'
+}
+
+Table system_config {
+  id bigserial [pk, increment]
+  key varchar(255) [not null, unique]
+  value text
+  description text
+  updated_at timestamp [default: 'CURRENT_TIMESTAMP']
+  
+  Note: 'Configuración del sistema'
+}
+
+// =============================================
+// LARAVEL SYSTEM (Mínimo necesario)
+// =============================================
+
+Table migrations {
+  id int [pk, increment]
+  migration varchar(255) [not null]
+  batch int [not null]
+}
+
+Table failed_jobs {
+  id bigserial [pk, increment]
+  uuid varchar(255) [unique, not null]
+  connection text [not null]
+  queue text [not null]
+  payload text [not null]
+  exception text [not null]
+  failed_at timestamp [default: 'CURRENT_TIMESTAMP']
+}
+
+Table jobs {
+  id bigserial [pk, increment]
+  queue varchar(255) [not null]
+  payload text [not null]
+  attempts smallint [not null]
+  reserved_at int
+  available_at int [not null]
+  created_at int [not null]
+}
+
+Table sessions {
+  id varchar(255) [pk]
+  user_id bigint
+  ip_address varchar(45)
+  user_agent text
+  payload text [not null]
+  last_activity int [not null]
+}
+
+// =============================================
+// RELATIONSHIPS
+// =============================================
+
+// Event relationships
+Ref: events.triggered_by > users.id
+Ref: events.causation_id > events.id
+Ref: events.event_type > event_types.event_type
+
+// Core relationships
+Ref: emails.gmail_group_id > gmail_groups.id
+Ref: emails.parent_email_id > emails.id
+
+Ref: email_queue.template_id > email_templates.id
+Ref: email_queue.case_id > cases.id
+Ref: email_queue.parent_email_id > emails.id
+Ref: email_queue.created_by > users.id
+
+Ref: email_attachments.email_id > emails.id
+
+Ref: reference_codes.assigned_user_id > users.id
+
+Ref: email_templates.created_by > users.id
+Ref: sessions.user_id > users.id
+
+// =============================================
+// TABLE GROUPS
+// =============================================
+
+TableGroup "Event Sourcing" {
+  event_types
+  events
+}
+
+TableGroup "Core Entities" {
+  users
+  emails
+  cases
+  gmail_groups
+}
+
+TableGroup "Queue & Processing" {
+  email_queue
+  email_attachments
+}
+
+TableGroup "Reference Data" {
+  contacts
+  reference_codes
+  email_templates
+  system_config
+}
+
+TableGroup "Laravel System" {
+  migrations
+  failed_jobs
+  jobs
+  sessions
+}
+
+// =============================================
+// NOTAS IMPORTANTES
+// =============================================
+
+/*
+ELIMINADO COMPLETAMENTE:
+- email_dispatch_log: Redundante, todo va a eventos
+- case_metrics: Calculado desde eventos  
+- communications: Unificado en emails
+- phone_communications: Eventos de communication.phone_*
+- user_roles: Eventos de user.role_changed
+- oauth_tokens: Eventos de gmail.auth_* 
+- contact_lists/members: Eventos de campaign.*
+- campaigns/campaign_sends: Eventos de campaign.*
+- email_campaigns: Eventos de campaign.*
+- cache/cache_locks: Laravel maneja esto
+- password_reset_tokens: Laravel maneja esto
+- job_batches: Simplificado
+
+FILOSOFÍA EVENT-FIRST:
+1. Tablas = solo datos inmutables esenciales
+2. Estado actual = último evento de ese tipo
+3. Métricas = agregaciones de eventos
+4. Historial completo = secuencia de eventos
+5. Rollback = replay eventos hasta punto específico
+
+QUERIES TÍPICOS:
+- Estado actual email: último evento email.status_changed
+- Emails asignados a user X: eventos email.assigned donde new_assigned_to = X
+- Casos sin responder: casos SIN evento case.first_response_sent  
+- Rebotes del mes: eventos email.bounced en rango de fechas
+- Performance agente: tiempo entre eventos case.assigned y case.resolved
+*/
